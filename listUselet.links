@@ -1,0 +1,147 @@
+open Uselet
+
+
+typename ItemId = Int;
+typename Item = (id: ItemId, body: String);
+typename Error = String;
+
+typename Model = (items: [Item], value: String);
+
+typename ListApiMessage = [| GetData | AddItem: String | DeleteItem: ItemId |];
+
+typename ListMessage = [|
+    Refresh
+  | Data: Model
+  | AddItem: String
+  | AddSuccess: Item
+  | DeleteItem: ItemId
+  | DeleteSuccess: ItemId
+  | APIError: String
+|];
+
+
+# API
+
+fun mockApiFun (entries, idSeed)(emit) {
+  receive {
+    case GetData -> { emit(Data(entries)); mockApiFun(entries, idSeed)(emit) }
+    case AddItem -> {
+      var item = (id = idSeed, body = intToString(idSeed));
+      emit(AddSuccess(item));
+      mockApiFun(item :: entries, idSeed + 1)(emit)
+    }
+    case DeleteItem(id) -> {
+      emit(DeleteSuccess(id));
+      mockApiFun(filter(fun (e) { e.id <> id }, entries), idSeed)(emit)
+    }
+  }
+}
+
+# fun apiFun (emit) {
+#   receive {
+#     case GetData -> {
+#       var data = for (item <-- listItemsTable)
+#         [ item ];
+
+#       emit(Data(data));
+#       apiFun(emit)
+#     }
+#     case AddItem(text) -> {
+#       var item = insert listItemsTable values (body) [
+#         (body = text)
+#       ];
+#       emit(AddSuccess(item));
+#       # on error emit(APIError(err))
+#       apiFun(emit)
+#     }
+#     case DeleteItem(id) -> {
+#       delete (item <-- listItemsTable)
+#         where (item.id == id);
+#       emit(DeleteSuccess(id));
+#       # on error emit(APIError(err))
+#       apiFun(emit)
+#     }
+#   }
+# }
+
+fun spawnApiService (emit) {
+  spawnClient { mockApiFun([ ], 0)(emit) }
+}
+
+
+# Uselet
+
+fun listUpdateFun (services)(model: Model, msg) {
+  switch (msg) {
+    case ValueChanged(eventTarget) -> {
+      var newValue = domGetAttributeFromRef(eventTarget, "value");
+      ( model with value = newValue )
+    }
+
+    case Refresh -> { services.listApi ! GetData; model }
+    case Data(data) -> ( model with items = data )
+
+    case AddItem -> { services.listApi ! AddItem; model }
+    case AddSuccess(item) -> ( model with items = item :: model.items )
+
+    case DeleteItem(id) -> { services.listApi ! DeleteItem(id); model }
+    case DeleteSuccess(id) -> ( model with items = filter(fun (i) { i.id <> id }, model.items) )
+
+    case APIError(err) -> { error(err); model }
+
+    case _ -> model
+  }
+}
+
+
+fun listRenderFun (emit, send)(self, model: Model) {
+  <#>
+    <input
+      type="text"
+      l:onkeyup="{ send(ValueChanged(getTarget(event)), self) }"
+      value="{ model.value }"
+    />
+    <button l:onclick="{ emit(AddItem) }">Add</button>
+    <ul>
+      {
+        for (item <- model.items) {
+          <#>
+          <li>{ stringToXml(item.body) }</li>
+          </#>
+        }
+      }
+    </ul>
+  </#>
+}
+
+
+var listUselet = uselet(
+  "my-list-elem",
+  (value="", items=[ ]): Model,
+  listUpdateFun,
+  listRenderFun
+);
+
+
+
+
+fun main () {
+  var services = fun (emit) {
+    (
+      listApi = spawnApiService(emit) `using` log("[ListAPI]")
+    )
+  };
+
+  addRoute("/u", fun (_, _) {
+
+    page
+      <main>
+  	    {| useletPage(listUselet,  services) |}
+  	    {| useletPage(listUselet,  services) |}
+      </main>
+  });
+
+  servePages()
+}
+
+main()

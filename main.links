@@ -1,0 +1,383 @@
+# Intra-component interaction happens via messages
+#   e.g. `onClick={ dispatcher ! Clicked(self) }`
+#   The dispatcher then propagates the message back to the component
+#   The components receive acts upon that message
+
+# Forms can be sent async
+#   Send `Submit(target=endpoint, replyTo=self, data=data)`
+#   Dispatcher forwards to `target` with `data`
+#   Server does server-stuff
+#   Server sends `Success(data)` or `Error(error)` to `replyTo` via local dispatcher
+#   Local dispatcher forwards to component.
+
+# Forms can be sent sync
+
+# Components communicate locally async
+#   Each component has a unique identifier `addr`
+#   Each component registers with the Dispatcher
+#   All messages are sent to the dispatcher with the target adress `target`
+#   Dispatcher forwards messages to the component with addr `target` or throws it away if unknown
+
+# Components communicate remotely async
+#   Each dispatcher has a unique identifier
+#   Each component has a unique local identifier `addrLocal`
+#   Each client dispatcher registers with the server
+#   When the server receives a message to `addrRemote/addrLocal` forwards it to the local dispatcher
+#   The local dispatcher forwards the message to the component
+#   The server can broadcast to all attached dispatchers
+
+typename Address = Int;
+typename AddressSource = () {}~> Address;
+
+sig makeAddr : (AddressSource) {}~> (Address, AddressSource)
+fun makeAddr (source) {
+  var addr = source();
+  (addr, fun () { addr + 1 })
+}
+
+var addressInit = fun () { 0 } : AddressSource;
+
+fun dispatcherFn (clients) {
+  fun broadcast(msg, tos) {
+    switch (tos) {
+      case [] -> ()
+      case (_, t)::ts -> { t ! msg; broadcast(msg, ts) }
+    }
+  }
+
+  receive {
+    case Register(addr, to) -> {
+      dispatcherFn((addr, to) :: clients)
+    }
+    case Deregister(addr) -> dispatcherFn(removeAssoc(addr, clients))
+
+    case DispatchMessage(msg, to) -> {
+      switch (lookup(to, clients)) {
+        case Nothing -> {
+          print("[Dispatch] " ^^ show(msg) ^^ " > " ^^ show(to) ^^ " [Unknown]");
+          dispatcherFn(clients)
+        }
+        case Just(target) -> {
+          print("[Dispatch] " ^^ show(msg) ^^ " > " ^^ show(to));
+          target ! msg;
+          dispatcherFn(clients)
+        }
+      }
+    }
+    case BroadcastMessage(msg) -> {
+      print("[Broadcast] " ^^ show(msg));
+      broadcast(msg, clients);
+      dispatcherFn(clients)
+    }
+  }
+}
+
+var dispatcher = spawn { dispatcherFn([]) };
+
+fun rerender (addr, newXml) {
+# fun rerender (u, newState) {
+  # var newDOMTree = u.render(u, newState);
+  # resolveDomDiff(getUseletDOM(u.addr), newDOMTree);
+
+  ()
+}
+
+fun resolveDomDiff (old, new) {
+  ()
+}
+
+fun renderFn () {
+  receive {
+    case Rerender(addr, xml) -> {
+      rerender(addr, xml);
+      renderFn()
+    }
+  }
+}
+
+var renderer = spawn { renderFn() };
+
+fun attach(subject) {
+  fun proxyFn (oldState) {
+    receive {
+      case msg -> {
+        var newState = subject.updateState(subject, oldState, msg);
+        if (newState <> oldState) {
+          # TODO push u.render etc. down to the rerender function
+          renderer ! Rerender(subject.addr, subject.render(subject, newState));
+        } else {
+          ()
+        };
+        proxyFn(newState)
+      }
+    }
+  }
+
+  dispatcher ! Register(subject.addr, spawn { proxyFn(subject.init) });
+  subject
+}
+
+fun pure (init) (addrGen) {
+
+  var (addr, addrGen1) = makeAddr(addrGen);
+
+  fun render (self, state) { <#/> }
+
+  fun updateState (self, state, msg) {
+    state
+  }
+
+  attach((
+    addr = addr,
+    render = render,
+    updateState = updateState,
+    gen = addrGen1,
+    init = init
+  ))
+}
+
+# Compare ELM architecture
+# init -> model
+# render -> view
+# updateState -> update
+fun makeUselet (render, updateState) (init) (addrGen) {
+  var (addr, addrGen1) = makeAddr(addrGen);
+  attach((
+    addr = addr,
+    render = render,
+    updateState = updateState,
+    gen = addrGen1,
+    init = init
+  ))
+}
+
+# var input = makeUselet(
+#   fun (self, state) { <input type="text" value="{ state }" /> },
+#   fun (self, state, msg) {
+#     switch (msg) {
+#       case Change(newValue) -> newValue
+#       case _ -> state
+#     }
+#   }
+# );
+
+# fun text(text) {
+#   makeUselet(
+#     fun (self, state) { stringToXml(text) },
+#     fun (self, state, msg) { state }
+#   )(())
+# }
+
+# fun html(markup) {
+#   makeUselet (
+#     fun (self, state) { markup },
+#     fun (self, state, msg) { state }
+#   )(())
+# }
+
+infixr 0 <!;
+op u <! msg {
+  dispatcher ! DispatchMessage(msg, u.addr)
+}
+
+fun emit (msg) {
+  dispatcher ! BroadcastMessage(msg)
+}
+
+infixr 0 <*>;
+op f <*> p {
+  fun (addrGen) {
+    var u1 = f(addrGen);
+    var u2 = p(u1.gen);
+
+    var init3 = (u1.init, u2.init);
+
+    fun render3 (self, state) {
+      var (state1, state2) = state;
+      <#>
+        { u1.render(u1.addr, state1) }
+        { u2.render(u2.addr, state2) }
+      </#>
+    }
+
+    fun updateState3 (self, state, msg) {
+      var (state1, state2) = state;
+      u1 <! msg;
+      u2 <! msg;
+      (u1.updateState(u1, state1, msg), u2.updateState(u2, state2, msg))
+    }
+
+    makeUselet(render3, updateState3)(init3)(u2.gen)
+  }
+}
+
+# fun listAPIFn (entries) {
+#   receive {
+#     case Add(s) -> {
+#       emit(AddSuccess(s));
+#       listAPIFn(s :: entries)
+#     }
+#     case GetAll(replyTo) -> {
+#       emit(Entries(entries));
+#       listAPIFn(entries)
+#     }
+#   }
+# }
+
+# var listAPIService = spawn { listAPIFn([]) };
+
+# var list = makeUselet(
+#   fun (self, elems) {
+#     <ul>
+#     {
+#       for (s <- elems)
+#         <li>{ stringToXml(s) }</li>
+#     }
+#     </ul>
+#   },
+#   fun (self, curr, msg) {
+#     switch (msg) {
+#       case Init -> {
+#         listAPIService ! GetAll(self);
+#         curr
+#       }
+#       case Add(s) -> {
+#         listAPIService ! Add(s);
+#         curr
+#       }
+#       case AddSuccess(s) -> s :: curr
+#       case Entries(es) -> es
+#       case _ -> curr
+#     }
+#   }
+# );
+
+# fun main () {
+#   var l1 = list([])(addressInit);
+
+#   emit(Init);
+
+#   emit(Add("1"));
+#   emit(Add("2"));
+#   emit(Add("3"));
+
+#   var l2 = list([])(l1.gen);
+
+#   emit(Init);
+
+#   servePages()
+# }
+
+makeUselet
+
+
+
+# Uselet(state1) <*> Uselet(state2) = Uselet((state1, state2))
+
+# typename Protocol = rec X: Mousedown.Mouseup.X | Mouseover.Mousemove.Mouseout.X;
+# typename State =
+
+# sig updateFun : (state) { rec X: Mousedown.Mouseup.X | Mouseover.Mousemove.Mouseout.X }~> (state)
+
+# sig makeUselet : ((self, state) ~> Xml, (self, state, msg) {protocol}~> state) ~>
+
+
+# Rendering
+# - Initial render
+# - Partial updates (resolveDomDiff)
+#
+# Push rendering call down to rerender function
+#
+# Broadcast or singlecast?
+#
+# Control duplicate messages
+#
+# Child-composition
+#
+# Embedding into page
+#
+# Formlet interaction
+#
+# Attaching JS event handlers
+
+
+# uselet
+#   model <i>
+#   update <updateFun>
+#   view <renderFnBody>
+
+# desugars into
+
+# let(fun (model) { <renderFnBody> }, <updateFun>)(<i>)
+
+# e.g.
+#
+# var stringList = uselet
+#   model [ ]
+#   update fun (model, msg) {
+#     switch (msg) {
+#       case Add(s) -> s :: model
+#       case Clear -> [ ]
+#     }
+#   }
+#   view <ul>
+#     {
+#       for (s <- model) {
+#         <li>{ stringToXml(s) }</li>
+#       }
+#     }
+#   </ul>;
+#
+
+# <ul>
+#   {
+#     for (s <- model) {
+#       <li>{ stringToXml(s) }</li>
+#     }
+#   }
+# </ul>
+# <input type="text" value="{ model.value }" onChange="{ emit(Change(event.target.value)) }">
+# <button onClick="{ emit(Add(model.value)) }">Add</button>
+
+
+
+
+# [Server]            [ApiService]          [Dispatcher]            [Uselet]              [Renderer]
+#    |                     |                     |                    _|_                    _|_
+#    |                     |                     |                   |   |----------------->|  _|_
+#    |                     |                     |                   |___|                  | |   |-----+
+#    |                     |                     |                     |                    | |   |     |
+#    |                     |                     |                     |                    | |   |     | rerender
+#    |                     |                     |                     |                    | |   |     |
+#    |                     |                     |                     |                    | |___|<----+
+#    |                     |                     |                    _|_                   |___|
+#    |                     |                     |           ------->|   |                    |
+#    |                    _|_                    |                   |   |                    |
+#   _|_                  |   |<---!GetData---------------------------|   |                    |
+#  |   |<----getData-----|   |                   |                   |___|                    |
+#  |   |                 |   |                   |                     |                      |
+#  |___|---------------->|   |                  _|_                    |                      |
+#    |                   |   |-----!Data------>|   |                  _|_                     |
+#    |                   |___|                 |   |-----!Data------>|  _|_                   |
+#    |                     |                   |___|                 | |   |----+             |
+#    |                     |                     |                   | |   |    | updateState |
+#    |                     |                     |                   | |___|<---+             |
+#    |                     |                     |                   |   |                   _|_
+#    |                     |                     |                   |   |----------------->|  _|_
+#    |                     |                     |                   |___|                  | |   |-----+
+#    |                     |                     |                     |                    | |   |     |
+#    |                     |                     |                     |                    | |   |     | rerender
+#    |                     |                     |                     |                    | |   |     |
+#    |                     |                     |                     |                    | |___|<----+
+#    |                     |                     |                     |                    |___|
+#    |                     |                     |                     |                      |
+#    |                     |                     |                     |                      |
+#    |                     |                     |                     |                      |
+#                                     |\
+#       Unidirectional Dataflow       | \
+#  ___________________________________|  \
+# |                                       \
+# |___________________________________    /
+#                                     |  /
+#                                     | /
+#                                     |/
