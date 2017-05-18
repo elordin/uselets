@@ -16,18 +16,18 @@ var addressInit = fun () { 0 } : AddressSource;
 
 fun dispatchFun (clients) {
   receive {
-    case Register(c)    -> { dispatchFun(c :: clients) }
-    case Deregister(c)  -> dispatchFun(filter(fun (x) { x <> c }, clients))
+    case Register(addr, c)    -> { dispatchFun((addr, c) :: clients) }
+    case Deregister(addr)  -> dispatchFun(filter(fun (x) { var (a, c) = x; a <> addr }, clients))
     case Ignore         -> dispatchFun(clients)
     case Send(msg, to)  -> {
-      var tmp =
-        for (c <- clients)
-        # where (c.addr == to)
-          [ c ! msg ];
+      switch (lookup(to, clients)) {
+        case Nothing -> ()
+        case Just(c) -> c ! msg
+      };
       dispatchFun(clients)
     }
     case Broadcast(msg) -> {
-      var tmp = for (c <- clients) [
+      var tmp = for ((addr, c) <- clients) [
         # if c accepts msg (by type)
         c ! msg
       ];
@@ -66,8 +66,7 @@ sig makeTag : (String, [(String, String)], Xml) ~> Xml
 fun makeTag (name, attributes, content) {
   # TODO
   var id = fromJust(lookup("id", attributes));
-
-  <div id="{ id }">
+  <div is="{ name }" id="{ id }">
     { content }
   </div>
 }
@@ -77,89 +76,60 @@ fun resolveDOMDiff (subject, targetState) {
   replaceNode(targetState, subject)
 }
 
-var nodeAddrPrefix = "_render_node_";
-
-fun rendererFun () client {
-  receive {
-    case Changed(addr, render, model) -> {
-    # case Changed(subject, model) -> {
-      var id = nodeAddrPrefix ^^ intToString(addr);
-
-      var targetDOM = render(addr, model);
-
-      var currentDOM = getNodeById(id);
-      resolveDOMDiff(currentDOM, targetDOM);
-      rendererFun()
-    }
-  }
-}
-
-fun spawnRenderer () {
-  spawnClient { rendererFun() } `using` log("[Renderer]")
-}
-
-
 # Uselet
 
 fun uselet(name, model, updt, view) {
-  fun (addressSource, services, dispatcher, renderer) {
+  fun (addressSource, services, dispatcher) {
+
+    var nodeAddrPrefix = "_render_node_";
     var (addr, gen) = makeAddr(addressSource);
+    var id = nodeAddrPrefix ^^ intToString(addr);
 
-    fun emit (msg) {
-      dispatcher <! msg
-    }
+    fun send (msg) { dispatcher <!@ (msg, addr) }
 
-    fun send (msg, to) {
-      dispatcher <!@ (msg, to)
-    }
+    fun renderAsElement (model) {
 
-    fun wrappedRenderFun (self, model) {
-      var xml = view(emit, send)(self, model);
-      var id = nodeAddrPrefix ^^ intToString(addr);
+      var xml = view(send)(model);
       makeTag(name, [("id", id)], xml)
+    }
+
+    fun reRender (newModel) {
+      var targetDOM = renderAsElement(newModel);
+      var currentDOM = getNodeById(id);
+      resolveDOMDiff(currentDOM, targetDOM)
     }
 
     var updateWithServices = updt(services);
 
-    fun proxyFn (oldState) {
+    fun handler (oldState) {
       receive {
         case msg -> {
           var newState = updateWithServices(oldState, msg);
-          # var xml = subject.renderFun(subject.addr, newState);
-          # renderer ! Changed(subject, newState);
-          renderer ! Changed(addr, wrappedRenderFun(addr, newState));
-          proxyFn(newState)
+          reRender(newState);
+          handler(newState)
         }
       }
     }
 
-    dispatcher ! Register(spawnClient { proxyFn(model) });
+    dispatcher ! Register(addr, spawnClient { handler(model) });
 
-    (
-      name = name,
-      addr = addr,
-      model = model,
-      renderFun = wrappedRenderFun,
-      updateFun = updateWithServices,
-      gen = gen
-    )
+    # renderAsElement(model)
+    (<div id="{id}"><button l:onclick="{ send(Refresh) }">Init</button></div>, gen)
   }
 }
 
 fun useletPage (u, createServices) {
   var addrSource = addressInit;
   var dispatcher = spawnDispatcher();
-  var renderer = spawnRenderer();
 
   var services = createServices(fun (msg) { dispatcher <! msg });
 
-  var instance = u(addrSource, services, dispatcher, renderer);
+  var (xml1, gen1) = u(addrSource, services, dispatcher);
+  var (xml2, gen2) = u(gen1, services, dispatcher);
 
   page
     <#>
-      { instance.renderFun(instance.addr, instance.model) }
+      { xml1 }
+      { xml2 }
     </#>
 }
-
-
-

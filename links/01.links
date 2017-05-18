@@ -416,14 +416,14 @@ main()
 #       case APIAddSuccess(item) -> ( model with items = item :: model.items )
 #     }
 #   }
-#   view fun (model) {
+#   view
 #     <#>
 #       <input
 #         type="text"
 #         l:onkeyup="{ send(ValueChanged(getInputValueFromRef(getTarget(event)))) }"
 #         value="{ model.value }"
 #       />
-#       <button l:onclick="{ send(Additem) }">Add</button>
+#       <button l:onclick="{! Additem !}">Add</button>
 #       <ul>
 #         {
 #           for (item <- mode.items)
@@ -431,7 +431,7 @@ main()
 #         }
 #       </ul>
 #     </#>
-#   }
+
 
 # page
 #   <#>

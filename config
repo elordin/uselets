@@ -1,7 +1,0 @@
-jsliburl=http://localhost:8080/lib/
-prelude=/home/weber/links/prelude.links
-database_driver=postgresql
-database_args=localhost:54321:linx:edi
-make_cache=off
-use_cache=off
-debug=true

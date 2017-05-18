@@ -159,14 +159,3 @@ fun useletPage (u, createServices) {
     </#>
 }
 
-
-fun main () {
-
-  addRoute("/u", fun (_, _) {
-    useletPage(listUselet, fun (emit) { (listApi = spawnClient { mockApiFun([ ], 0)(emit) } `using` log("[ListAPI]")) })
-  });
-
-  servePages()
-}
-
-main()

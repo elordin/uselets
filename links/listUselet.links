@@ -7,20 +7,27 @@ typename Error = String;
 
 typename Model = (items: [Item], value: String);
 
-typename ListApiMessage = [| GetData | AddItem: String | DeleteItem: ItemId |];
+typename ListApiMessage = [| GetData | AddItem | DeleteItem: ItemId |];
 
 typename ListMessage = [|
     Refresh
-  | Data: Model
-  | AddItem: String
+  | Data: [Item]
+  | AddItem
   | AddSuccess: Item
   | DeleteItem: ItemId
   | DeleteSuccess: ItemId
   | APIError: String
+  | ValueChanged:DomNode
 |];
 
 
 # API
+var db = database "uselet";
+
+var listItemsTable = table "items"
+  with (id: Int, body: String)
+  where id readonly
+  from db;
 
 fun mockApiFun (entries, idSeed)(emit) {
   receive {
@@ -37,6 +44,12 @@ fun mockApiFun (entries, idSeed)(emit) {
   }
 }
 
+# fun insertItem (body) server {
+#   insert listItemsTable values (body) [
+#     (body = body)
+#   ]
+# }
+
 # fun apiFun (emit) {
 #   receive {
 #     case GetData -> {
@@ -46,10 +59,8 @@ fun mockApiFun (entries, idSeed)(emit) {
 #       emit(Data(data));
 #       apiFun(emit)
 #     }
-#     case AddItem(text) -> {
-#       var item = insert listItemsTable values (body) [
-#         (body = text)
-#       ];
+#     case AddItem -> {
+#       var item = insertItem("Lorem ipsum");
 #       emit(AddSuccess(item));
 #       # on error emit(APIError(err))
 #       apiFun(emit)
@@ -65,43 +76,38 @@ fun mockApiFun (entries, idSeed)(emit) {
 # }
 
 fun spawnApiService (emit) {
-  spawnClient { mockApiFun([ ], 0)(emit) }
+  spawnClient { mockApiFun([], 0)(emit) }
 }
 
 
 # Uselet
 
-fun listUpdateFun (services)(model: Model, msg) {
+sig listUpdateFun : ((listApi:Process ({ hear:ListApiMessage|_ })|_)) -> (Model, ListMessage) ~> Model
+fun listUpdateFun (services)(model, msg) {
   switch (msg) {
-    case ValueChanged(eventTarget) -> {
+    case ValueChanged(eventTarget: DomNode) -> {
       var newValue = domGetAttributeFromRef(eventTarget, "value");
       ( model with value = newValue )
     }
 
     case Refresh -> { services.listApi ! GetData; model }
-    case Data(data) -> ( model with items = data )
+    case Data(data: [Item]) -> ( model with items = data )
 
     case AddItem -> { services.listApi ! AddItem; model }
-    case AddSuccess(item) -> ( model with items = item :: model.items )
+    case AddSuccess(item: Item) -> ( model with items = item :: model.items )
 
-    case DeleteItem(id) -> { services.listApi ! DeleteItem(id); model }
-    case DeleteSuccess(id) -> ( model with items = filter(fun (i) { i.id <> id }, model.items) )
+    case DeleteItem(id: ItemId) -> { services.listApi ! DeleteItem(id); model }
+    case DeleteSuccess(id: ItemId) -> ( model with items = filter(fun (i) { i.id <> id }, model.items) )
 
-    case APIError(err) -> { error(err); model }
-
-    case _ -> model
+    case APIError(err: String) -> { error(err); model }
   }
 }
 
 
-fun listRenderFun (emit, send)(self, model: Model) {
+sig listRenderFun : ((ListMessage) ~> ()) -> (Model) ~> Xml
+fun listRenderFun (send)(model) {
   <#>
-    <input
-      type="text"
-      l:onkeyup="{ send(ValueChanged(getTarget(event)), self) }"
-      value="{ model.value }"
-    />
-    <button l:onclick="{ emit(AddItem) }">Add</button>
+    <button l:onclick="{ send(AddItem) }">Add</button>
     <ul>
       {
         for (item <- model.items) {
@@ -124,19 +130,18 @@ var listUselet = uselet(
 
 
 
+var services = fun (emit) {
+  (
+    listApi = spawnApiService(emit) `using` log("[ListAPI]"): Process ({ hear:ListApiMessage,wild|_ })
+  )
+};
+
 
 fun main () {
-  var services = fun (emit) {
-    (
-      listApi = spawnApiService(emit) `using` log("[ListAPI]")
-    )
-  };
-
   addRoute("/u", fun (_, _) {
 
     page
       <main>
-  	    {| useletPage(listUselet,  services) |}
   	    {| useletPage(listUselet,  services) |}
       </main>
   });
@@ -145,3 +150,5 @@ fun main () {
 }
 
 main()
+
+# Uselet.dispatchFun
