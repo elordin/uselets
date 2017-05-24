@@ -1,5 +1,213 @@
-open Uselet
+# alien javascript replaceChildrenInShadow: (DomNode, Xml) ~> ();
 
+# Namer
+
+typename Address = Int;
+typename AddressSource = () {}~> Address;
+
+# Generate a fresh Address from an AddressSource
+# @param {AddressSource}
+# @returns {(Address, AddressSource)} Pair of the generated Address and an updated generator
+# sig makeAddr : (AddressSource) {}~> (Address, AddressSource)
+fun makeAddr (source) {
+  var addr = source();
+  (addr, fun () { addr + 1 })
+}
+
+var addressInit = fun () { 0 } : AddressSource;
+
+
+# Dispatcher
+
+typename DispatcherMessage = forall a, b.
+ [| Deregister: Address
+  | Ignore
+  | Send: (a, Address)
+  | Broadcast: a
+  | Register: (Address, b)
+  |];
+
+# Dispatcher handler
+# Forward messages to their correct recipient(s)
+# @param {[(Address, fun]} clients
+# @returns {()}
+# sig dispatchFun : ([(Address, (b) {:DispatcherMessage}~> () )]) {:DispatcherMessage} ~> ()
+fun dispatchFun (clients) client {
+  receive {
+    case Register(addr, send) -> { dispatchFun((addr, send) :: clients) }
+    case Deregister(addr)  -> dispatchFun(filter(fun (x) { var (a, c) = x; a <> addr }, clients))
+    case Ignore -> dispatchFun(clients)
+    case Send(msg, to) -> {
+      switch (lookup(to, clients)) {
+        case Nothing -> ()
+        case Just(send) -> send(msg)
+      };
+      dispatchFun(clients)
+    }
+    case Broadcast(msg) -> {
+      var tmp = for ((addr, send) <- clients) [
+        # if c accepts msg (by type)
+        send(msg)
+      ];
+      dispatchFun(clients)
+    }
+  }
+}
+
+# Broadcast
+# sig <! : (Process({ hear: DispatcherMessage|_ }), b) ~> ()
+op disp <! msg {
+  disp ! (Broadcast(msg) : DispatcherMessage)
+}
+
+# Directed send
+# sig <@ : (Process({ hear: DispatcherMessage|_ }), (b, Address)) ~> ()
+op disp <@ (msg, to: Address) {
+  disp ! (Send(msg, to) : DispatcherMessage)
+}
+
+# Mix in function applied to all messages received
+# @param {Process} The recipient of the message
+# @param {fun} Mutator for the messages
+# @returns {Process}
+# sig using : forall m::Any. (Process({ hear: a,wild }), (b) {:b}~> a) ~> Process({ hear: b,wild })
+fun using (recp, plugin) {
+  fun helper () {
+    receive {
+      case msg -> { recp ! plugin(msg); helper() }
+    }
+  }
+  spawnClient { helper() }
+}
+
+# sig log : (String) ~> (b) ~> b
+fun log (logPrefix)(msg) { print(logPrefix ^^ " " ^^ show(msg)); msg }
+
+# @returns {Process} Dispatcher process with logging
+# sig spawnDispatcher : () ~> Process({ hear: DispatcherMessage, wild })
+fun spawnDispatcher () {
+  spawnClient { dispatchFun([ ]) } `using` log("[Dispatcher]")
+}
+
+
+# Renderer
+
+# sig makeTag : (String, [(String, String)], Xml) -> Xml
+fun makeTag (name, attributes, content) {
+  # makeXml(name, attributes, content)
+  # TODO
+  var id = fromJust(lookup("id", attributes));
+  <div is="{ name }" id="{ id }">
+    { content }
+  </div>
+}
+
+# Resolve diff of two DOM (sub-)trees
+# @param {DomNode} subject DOM Subtree to mutate into target state
+# @param {Xml} targetState Xml representation the subject is to be in
+# @returns {()}
+# sig resolveDOMDiff : (DomNode, Xml) ~> ()
+fun resolveDOMDiff (subject, targetState) client {
+  replaceNode(targetState, subject)
+  # replaceChildrenInShadow(subject, targetState);
+}
+
+# Uselet
+
+# Create uselet from name, model, update, and view
+# @param {String} Name
+# @param {_} Model
+# @param {fun} Update function
+# @param {fun} View function
+# @returns {Uselet}
+
+# sig uselet : forall b::Any, e, f::Row, g::Row, h::Row, i::Row, j::Row. (
+#   String,
+#   model,
+#   (b::Any) {hear:e|k}~> (model, msg) {:msg|_}~> model,
+#   (model) { |f}~> Xml
+# ) { |g}~> (
+#   AddressSource,
+#   b::Any,
+#   Process ({ hear:DispatcherMessage|_ })
+# ) { |i}~> (
+#   Xml,
+#   AddressSource
+# )
+fun uselet(name: String, model, updt, view) {
+  fun (addressSource: AddressSource, services, dispatcher) {
+
+    var nodeAddrPrefix = "_render_node_";
+    var (addr, gen) = makeAddr(addressSource);
+    var id = nodeAddrPrefix ^^ intToString(addr);
+
+    fun send (msg) { dispatcher <@ (msg, addr) }
+    fun emit (msg) { dispatcher <! (msg) }
+
+    fun renderAsElement (model) {
+      var xml = view(model);
+      makeTag(name, [("id", id)], xml)
+    }
+
+    fun reRender (newModel) {
+      var targetDOM = renderAsElement(newModel);
+      var currentDOM = getNodeById(id);
+      resolveDOMDiff(currentDOM, targetDOM)
+    }
+
+    var updateWithServices = updt(services);
+
+    fun handler (oldState) {
+      receive {
+        case msg -> {
+          var newState = updateWithServices(oldState, msg);
+          reRender(newState);
+          handler(newState)
+        }
+      }
+    }
+
+    var handler = spawnClient { handler(model) };
+    dispatcher ! Register(addr, fun (msg) { handler ! msg });
+
+    var elem = makeTag(name, [("id", id)], view(model));
+
+    (elem, gen)
+  }
+}
+
+# Create page embedding a given uselet
+# @param {Uselet}
+# @param {Services} Record of available services
+# @returns {Page}
+# sig useletPage : ((AddressSource, a, Process ({ hear:DispatcherMessage,wild })) ~%c~> (Xml, AddressSource), ((b) ~%d~> ()) ~%c~> a) ~%c~> Page
+fun useletPage (u, createServices) {
+  var addrSource = addressInit;
+  var dispatcher = spawnDispatcher();
+
+  var services = createServices(fun (msg) { dispatcher <! msg });
+
+  var (xml, gen) = u(addrSource, services, dispatcher);
+
+  page
+    <#>
+      { xml }
+    </#>
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+# open Uselet
 
 typename ItemId = Int;
 typename Item = (id: ItemId, body: String);
@@ -22,13 +230,14 @@ typename ListMessage = [|
 
 
 # API
-var db = database "uselet";
+# var db = database "uselet";
 
-var listItemsTable = table "items"
-  with (id: Int, body: String)
-  where id readonly
-  from db;
+# var listItemsTable = table "items"
+  # with (id: Int, body: String)
+  # where id readonly
+  # from db;
 
+# sig mockApiFun : ([Item], ItemId) -> ((ListMessage) {:ListApiMessage}~> ()) {:ListApiMessage}~> ()
 fun mockApiFun (entries, idSeed)(emit) {
   receive {
     case GetData -> { emit(Data(entries)); mockApiFun(entries, idSeed)(emit) }
@@ -45,36 +254,37 @@ fun mockApiFun (entries, idSeed)(emit) {
 }
 
 # fun insertItem (body) server {
-#   insert listItemsTable values (body) [
-#     (body = body)
-#   ]
+  # insert listItemsTable values (body) [
+  #   (body = body)
+  # ]
 # }
 
 # fun apiFun (emit) {
-#   receive {
-#     case GetData -> {
-#       var data = for (item <-- listItemsTable)
-#         [ item ];
+  # receive {
+  #   case GetData -> {
+  #     var data = for (item <-- listItemsTable)
+  #       [ item ];
 
-#       emit(Data(data));
-#       apiFun(emit)
-#     }
-#     case AddItem -> {
-#       var item = insertItem("Lorem ipsum");
-#       emit(AddSuccess(item));
-#       # on error emit(APIError(err))
-#       apiFun(emit)
-#     }
-#     case DeleteItem(id) -> {
-#       delete (item <-- listItemsTable)
-#         where (item.id == id);
-#       emit(DeleteSuccess(id));
-#       # on error emit(APIError(err))
-#       apiFun(emit)
-#     }
-#   }
+  #     emit(Data(data));
+  #     apiFun(emit)
+  #   }
+  #   case AddItem -> {
+  #     var item = insertItem("Lorem ipsum");
+  #     emit(AddSuccess(item));
+  #     # on error emit(APIError(err))
+  #     apiFun(emit)
+  #   }
+  #   case DeleteItem(id) -> {
+  #     delete (item <-- listItemsTable)
+  #       where (item.id == id);
+  #     emit(DeleteSuccess(id));
+  #     # on error emit(APIError(err))
+  #     apiFun(emit)
+  #   }
+  # }
 # }
 
+# sig spawnApiService : ((ListMessage) {:ListApiMessage}~> ()) ~> Process ({ hear:ListApiMessage,wild })
 fun spawnApiService (emit) {
   spawnClient { mockApiFun([], 0)(emit) }
 }
@@ -82,7 +292,7 @@ fun spawnApiService (emit) {
 
 # Uselet
 
-sig listUpdateFun : ((listApi:Process ({ hear:ListApiMessage|_ })|_)) -> (Model, ListMessage) ~> Model
+# sig listUpdateFun : ((listApi:Process ({ hear:ListApiMessage, wild }) | _)) -> (Model, ListMessage) ~> Model
 fun listUpdateFun (services)(model, msg) {
   switch (msg) {
     case ValueChanged(eventTarget: DomNode) -> {
@@ -104,10 +314,33 @@ fun listUpdateFun (services)(model, msg) {
 }
 
 
-sig listRenderFun : ((ListMessage) ~> ()) -> (Model) ~> Xml
-fun listRenderFun (send)(model) {
+# sig listRenderFun : forall e::Row, f::Row, g::Row. ((ListMessage) ~e~> ()) ~f~> (Model) ~g~> Xml
+# sig listRenderFun : (Model) ~> Xml
+fun listRenderFun (model: Model) {
   <#>
-    <button l:onclick="{ send(AddItem) }">Add</button>
+    <style>
+      ul {{
+        font-family: sans-serif;
+        margin: 1rem 0;
+        padding: 0;
+      }}
+
+      li {{
+        display: block;
+        list-style-type: none;
+        border-bottom: thin solid #ccc;
+        padding: .5rem;
+      }}
+
+      li:last-child {{
+        border: none;
+      }}
+
+      li:nth-of-type(2n) {{
+        background-color: #eee;
+      }}
+    </style>
+    <button>Add</button>
     <ul>
       {
         for (item <- model.items) {
@@ -122,21 +355,19 @@ fun listRenderFun (send)(model) {
 
 
 var listUselet = uselet(
-  "my-list-elem",
+  "mylistelem",
   (value="", items=[ ]): Model,
   listUpdateFun,
   listRenderFun
 );
 
+sig services : ((ListMessage) {:ListApiMessage}~> ()) ~> (listApi: Process ({ hear: ListApiMessage, wild }))
+fun services(emit) {
+  ( listApi = spawnApiService(emit) )
+}
 
 
-var services = fun (emit) {
-  (
-    listApi = spawnApiService(emit) `using` log("[ListAPI]"): Process ({ hear:ListApiMessage,wild|_ })
-  )
-};
-
-
+sig main : () ~> ()
 fun main () {
   addRoute("/u", fun (_, _) {
 
@@ -150,5 +381,3 @@ fun main () {
 }
 
 main()
-
-# Uselet.dispatchFun

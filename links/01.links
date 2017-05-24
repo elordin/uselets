@@ -407,30 +407,30 @@ main()
 
 # Target syntax
 
-# var listUselet = uselet
-#   model (items = []: [Item], value: String)
-#   update fun (model, msg) {
-#     switch (msg) {
-#       case ValueChanged(newValue) -> ( model with value = newValue )
-#       case AddItem -> { listApiService ! APIAddItem(model.value); model }
-#       case APIAddSuccess(item) -> ( model with items = item :: model.items )
-#     }
-#   }
-#   view
-#     <#>
-#       <input
-#         type="text"
-#         l:onkeyup="{ send(ValueChanged(getInputValueFromRef(getTarget(event)))) }"
-#         value="{ model.value }"
-#       />
-#       <button l:onclick="{! Additem !}">Add</button>
-#       <ul>
-#         {
-#           for (item <- mode.items)
-#             <li key="{ item.id }">{ stringToXml(item.body) }</li>
-#         }
-#       </ul>
-#     </#>
+var listUselet = uselet
+  model (items = []: [Item], value: String)
+  update fun (model, msg) {
+    switch (msg) {
+      case ValueChanged(newValue) -> ( model with value = newValue )
+      case AddItem -> { listApiService ! APIAddItem(model.value); model }
+      case APIAddSuccess(item) -> ( model with items = item :: model.items )
+    }
+  }
+  view
+    <#>
+      <input
+        type="text"
+        l:onkeyup="{ send(ValueChanged(getInputValueFromRef(getTarget(event)))) }"
+        value="{ model.value }"
+      />
+      <button l:onclick="{! Additem !}">Add</button>
+      <ul>
+        {
+          for (item <- mode.items)
+            <li key="{ item.id }">{ stringToXml(item.body) }</li>
+        }
+      </ul>
+    </#>
 
 
 # page
@@ -477,7 +477,7 @@ main()
 #    |          .          |                     |                     |                    | |   |     |
 #    |          .          |                     |                     |                    | |___|<----+
 #    |          .          |                     |                    _|_                   |___|
-#    |          .          |                     |      --!Refresh-->|  _|_                   |
+#    |          .          |                     | -onClick:Refresh->|  _|_                   |
 #    |          .          |                     |                   | |   |----+             |
 #    |          .          |                     |                   | |   |    | updateFun   |
 #    |          .         _|_                    |                   | |   |<---+             |
