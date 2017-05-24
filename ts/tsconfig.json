@@ -1,0 +1,9 @@
+{
+    "compilerOptions": {
+        "sourceMap": true,
+        "target": "ES5",
+        "experimentalDecorators": true,
+         "baseUrl": "./src",
+         "outDir": "build"
+    }
+}
