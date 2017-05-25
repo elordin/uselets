@@ -1,5 +1,3 @@
-# alien javascript replaceChildrenInShadow: (DomNode, Xml) ~> ();
-
 # Namer
 
 typename Address = Int;
@@ -8,7 +6,7 @@ typename AddressSource = () {}~> Address;
 # Generate a fresh Address from an AddressSource
 # @param {AddressSource}
 # @returns {(Address, AddressSource)} Pair of the generated Address and an updated generator
-# sig makeAddr : (AddressSource) {}~> (Address, AddressSource)
+sig makeAddr : (AddressSource) {}~> (Address, AddressSource)
 fun makeAddr (source) {
   var addr = source();
   (addr, fun () { addr + 1 })
@@ -26,12 +24,13 @@ typename DispatcherMessage = forall a, b.
   | Broadcast: a
   | Register: (Address, b)
   |];
+typename Dispatcher = Process ({ hear:DispatcherMessage,wild });
 
 # Dispatcher handler
 # Forward messages to their correct recipient(s)
 # @param {[(Address, fun]} clients
 # @returns {()}
-# sig dispatchFun : ([(Address, (b) {:DispatcherMessage}~> () )]) {:DispatcherMessage} ~> ()
+sig dispatchFun : ([(Address, (b) {:DispatcherMessage}~> () )]) {:DispatcherMessage} ~> ()
 fun dispatchFun (clients) client {
   receive {
     case Register(addr, send) -> { dispatchFun((addr, send) :: clients) }
@@ -55,13 +54,13 @@ fun dispatchFun (clients) client {
 }
 
 # Broadcast
-# sig <! : (Process({ hear: DispatcherMessage|_ }), b) ~> ()
+sig <! : (Process ({ hear:DispatcherMessage,wild }), b) ~> ()
 op disp <! msg {
   disp ! (Broadcast(msg) : DispatcherMessage)
 }
 
 # Directed send
-# sig <@ : (Process({ hear: DispatcherMessage|_ }), (b, Address)) ~> ()
+sig <@ : (Process ({ hear:DispatcherMessage,wild }), (b, Address)) ~> ()
 op disp <@ (msg, to: Address) {
   disp ! (Send(msg, to) : DispatcherMessage)
 }
@@ -70,7 +69,7 @@ op disp <@ (msg, to: Address) {
 # @param {Process} The recipient of the message
 # @param {fun} Mutator for the messages
 # @returns {Process}
-# sig using : forall m::Any. (Process({ hear: a,wild }), (b) {:b}~> a) ~> Process({ hear: b,wild })
+sig using : forall m::Any. (Process({ hear: a,wild }), (b) {:b}~> a) ~> Process({ hear: b,wild })
 fun using (recp, plugin) {
   fun helper () {
     receive {
@@ -80,11 +79,11 @@ fun using (recp, plugin) {
   spawnClient { helper() }
 }
 
-# sig log : (String) ~> (b) ~> b
+sig log : (String) ~> (b) ~> b
 fun log (logPrefix)(msg) { print(logPrefix ^^ " " ^^ show(msg)); msg }
 
 # @returns {Process} Dispatcher process with logging
-# sig spawnDispatcher : () ~> Process({ hear: DispatcherMessage, wild })
+sig spawnDispatcher : () ~> Process ({ hear:DispatcherMessage,wild })
 fun spawnDispatcher () {
   spawnClient { dispatchFun([ ]) } `using` log("[Dispatcher]")
 }
@@ -92,11 +91,12 @@ fun spawnDispatcher () {
 
 # Renderer
 
-# sig makeTag : (String, [(String, String)], Xml) -> Xml
+sig makeTag : (String, [(String, String)], Xml) ~> Xml
 fun makeTag (name, attributes, content) {
   # makeXml(name, attributes, content)
   # TODO
   var id = fromJust(lookup("id", attributes));
+
   <div is="{ name }" id="{ id }">
     { content }
   </div>
@@ -106,7 +106,7 @@ fun makeTag (name, attributes, content) {
 # @param {DomNode} subject DOM Subtree to mutate into target state
 # @param {Xml} targetState Xml representation the subject is to be in
 # @returns {()}
-# sig resolveDOMDiff : (DomNode, Xml) ~> ()
+sig resolveDOMDiff : (DomNode, Xml) ~> ()
 fun resolveDOMDiff (subject, targetState) client {
   replaceNode(targetState, subject)
   # replaceChildrenInShadow(subject, targetState);
@@ -114,26 +114,27 @@ fun resolveDOMDiff (subject, targetState) client {
 
 # Uselet
 
+typename Uselet(model, msg) = forall b::Any. (
+  AddressSource,
+  b,
+  Process ({ hear:DispatcherMessage,wild })
+) {}~> (
+  Xml,
+  AddressSource
+);
+
 # Create uselet from name, model, update, and view
 # @param {String} Name
 # @param {_} Model
 # @param {fun} Update function
 # @param {fun} View function
 # @returns {Uselet}
-
-# sig uselet : forall b::Any, e, f::Row, g::Row, h::Row, i::Row, j::Row. (
-#   String,
-#   model,
-#   (b::Any) {hear:e|k}~> (model, msg) {:msg|_}~> model,
-#   (model) { |f}~> Xml
-# ) { |g}~> (
-#   AddressSource,
-#   b::Any,
-#   Process ({ hear:DispatcherMessage|_ })
-# ) { |i}~> (
-#   Xml,
-#   AddressSource
-# )
+sig uselet : (
+  String,
+  model,
+  forall y :: Row, z :: Row. (b::Any) { |y}~> (model, msg) { |z}~> model,
+  forall z :: Row. ((e) ~> ())  { |z}~> (model) { |z}~> Xml
+) -> Uselet(model, msg)
 fun uselet(name: String, model, updt, view) {
   fun (addressSource: AddressSource, services, dispatcher) {
 
@@ -144,24 +145,20 @@ fun uselet(name: String, model, updt, view) {
     fun send (msg) { dispatcher <@ (msg, addr) }
     fun emit (msg) { dispatcher <! (msg) }
 
-    fun renderAsElement (model) {
-      var xml = view(model);
-      makeTag(name, [("id", id)], xml)
-    }
-
-    fun reRender (newModel) {
-      var targetDOM = renderAsElement(newModel);
-      var currentDOM = getNodeById(id);
-      resolveDOMDiff(currentDOM, targetDOM)
-    }
-
     var updateWithServices = updt(services);
+
+    fun render (model) {
+      var xml = view(send)(model);
+      var targetDOM = makeTag(name, [("id", id)], xml);
+      var currentDOM = getNodeById(id);
+      resolveDOMDiff(currentDOM, targetDOM);
+    }
 
     fun handler (oldState) {
       receive {
         case msg -> {
           var newState = updateWithServices(oldState, msg);
-          reRender(newState);
+          render(newState);
           handler(newState)
         }
       }
@@ -170,7 +167,7 @@ fun uselet(name: String, model, updt, view) {
     var handler = spawnClient { handler(model) };
     dispatcher ! Register(addr, fun (msg) { handler ! msg });
 
-    var elem = makeTag(name, [("id", id)], view(model));
+    var elem = makeTag(name, [("id", id)], view(send)(model));
 
     (elem, gen)
   }
@@ -180,7 +177,7 @@ fun uselet(name: String, model, updt, view) {
 # @param {Uselet}
 # @param {Services} Record of available services
 # @returns {Page}
-# sig useletPage : ((AddressSource, a, Process ({ hear:DispatcherMessage,wild })) ~%c~> (Xml, AddressSource), ((b) ~%d~> ()) ~%c~> a) ~%c~> Page
+sig useletPage : ((AddressSource, a, Process ({ hear:DispatcherMessage,wild })) ~%c~> (Xml, AddressSource), ((b) ~%d~> ()) ~%c~> a) ~%c~> Page
 fun useletPage (u, createServices) {
   var addrSource = addressInit;
   var dispatcher = spawnDispatcher();
@@ -188,10 +185,12 @@ fun useletPage (u, createServices) {
   var services = createServices(fun (msg) { dispatcher <! msg });
 
   var (xml, gen) = u(addrSource, services, dispatcher);
+  var (xml2, _) = u(gen, services, dispatcher);
 
   page
     <#>
       { xml }
+      { xml2 }
     </#>
 }
 
@@ -207,7 +206,6 @@ fun useletPage (u, createServices) {
 
 
 
-# open Uselet
 
 typename ItemId = Int;
 typename Item = (id: ItemId, body: String);
@@ -230,28 +228,13 @@ typename ListMessage = [|
 
 
 # API
+
 # var db = database "uselet";
 
 # var listItemsTable = table "items"
   # with (id: Int, body: String)
   # where id readonly
   # from db;
-
-# sig mockApiFun : ([Item], ItemId) -> ((ListMessage) {:ListApiMessage}~> ()) {:ListApiMessage}~> ()
-fun mockApiFun (entries, idSeed)(emit) {
-  receive {
-    case GetData -> { emit(Data(entries)); mockApiFun(entries, idSeed)(emit) }
-    case AddItem -> {
-      var item = (id = idSeed, body = intToString(idSeed));
-      emit(AddSuccess(item));
-      mockApiFun(item :: entries, idSeed + 1)(emit)
-    }
-    case DeleteItem(id) -> {
-      emit(DeleteSuccess(id));
-      mockApiFun(filter(fun (e) { e.id <> id }, entries), idSeed)(emit)
-    }
-  }
-}
 
 # fun insertItem (body) server {
   # insert listItemsTable values (body) [
@@ -284,15 +267,31 @@ fun mockApiFun (entries, idSeed)(emit) {
   # }
 # }
 
-# sig spawnApiService : ((ListMessage) {:ListApiMessage}~> ()) ~> Process ({ hear:ListApiMessage,wild })
+sig mockApiFun : ([Item], ItemId) -> ((ListMessage) {:ListApiMessage}~> ()) {:ListApiMessage}~> ()
+fun mockApiFun (entries, idSeed)(emit) {
+  receive {
+    case GetData -> { emit(Data(entries)); mockApiFun(entries, idSeed)(emit) }
+    case AddItem -> {
+      var item = (id = idSeed, body = intToString(idSeed));
+      emit(AddSuccess(item));
+      mockApiFun(item :: entries, idSeed + 1)(emit)
+    }
+    case DeleteItem(id) -> {
+      emit(DeleteSuccess(id));
+      mockApiFun(filter(fun (e) { e.id <> id }, entries), idSeed)(emit)
+    }
+  }
+}
+
+sig spawnApiService : ((ListMessage) {:ListApiMessage}~> ()) ~> Process ({ hear:ListApiMessage,wild })
 fun spawnApiService (emit) {
-  spawnClient { mockApiFun([], 0)(emit) }
+  spawnClient { mockApiFun([ ], 0)(emit) }
 }
 
 
 # Uselet
 
-# sig listUpdateFun : ((listApi:Process ({ hear:ListApiMessage, wild }) | _)) -> (Model, ListMessage) ~> Model
+sig listUpdateFun : ((listApi:Process ({ hear:ListApiMessage, wild }) | _)) -> (Model, ListMessage) ~> Model
 fun listUpdateFun (services)(model, msg) {
   switch (msg) {
     case ValueChanged(eventTarget: DomNode) -> {
@@ -314,9 +313,8 @@ fun listUpdateFun (services)(model, msg) {
 }
 
 
-# sig listRenderFun : forall e::Row, f::Row, g::Row. ((ListMessage) ~e~> ()) ~f~> (Model) ~g~> Xml
-# sig listRenderFun : (Model) ~> Xml
-fun listRenderFun (model: Model) {
+sig listRenderFun : forall e::Row, f::Row, g::Row. ((ListMessage) ~%e~> ()) ~%f~> (Model) ~%g~> Xml
+fun listRenderFun (send)(model: Model) {
   <#>
     <style>
       ul {{
@@ -340,12 +338,12 @@ fun listRenderFun (model: Model) {
         background-color: #eee;
       }}
     </style>
-    <button>Add</button>
+    <button l:onclick="{ send(AddItem) }">Add</button>
     <ul>
       {
         for (item <- model.items) {
           <#>
-          <li>{ stringToXml(item.body) }</li>
+            <li>{ stringToXml(item.body) }</li>
           </#>
         }
       }
