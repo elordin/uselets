@@ -1,6 +1,84 @@
+typename Ord = [| LT | GT | EQ |];
+typename BinaryTree(key, value) = [| Node: (key, Maybe(value), BinaryTree(key, value), BinaryTree(key, value)) | Leaf |];
+
+var emptyTree = Leaf;
+
+fun treeInsert (key, value, compare, tree) {
+  switch (tree) {
+    case Leaf -> Node(key, Just(value), Leaf, Leaf)
+    case Node(k, v, l, r) -> switch (compare(key, k)) {
+      case EQ -> Node(k, Just(value), l, r)
+      case LT -> Node(k, v, treeInsert(key, value, compare, l), r)
+      case GT -> Node(k, v, l, treeInsert(key, value, compare, r))
+    }
+  }
+}
+
+fun treeFromList (kvps, compare) {
+  fold_left(fun (t, kvp) { var (k, v) = kvp; treeInsert(k, v, compare, t) }, emptyTree, kvps)
+}
+
+fun treeToList (tree) {
+  switch (tree) {
+    case Leaf -> [ ]
+    case Node(k, v, l, r) -> {
+      fun filterJustToValue (xs) {
+        switch (xs) {
+          case [ ] -> [ ]
+          case (k, Nothing) :: t -> filterJustToValue(t)
+          case (k, Just(v)) :: t -> (k, v) :: filterJustToValue(t)
+        }
+      }
+      filterJustToValue((k, v) :: treeToList(l) ++ treeToList(r))
+    }
+  }
+}
+
+fun treeMapValues (f, tree) {
+  switch (tree) {
+    case Leaf -> Leaf
+    case Node(k, Nothing, l, r) -> Node(k, Nothing, treeMapValues(f, l), treeMapValues(f, r))
+    case Node(k, Just(v), l, r) -> Node(k, Just(f(v)), treeMapValues(f, l), treeMapValues(f, r))
+  }
+}
+
+fun treeForEachValue (f, tree) {
+  switch (tree) {
+    case Leaf -> ()
+    case Node(k, Nothing, l, r) -> ()
+    case Node(k, Just(v), l, r) -> {
+      f(v);
+      treeForEachValue(f, l);
+      treeForEachValue(f, r);
+    }
+  }
+}
+
+fun treeLookup (key, compare, tree) {
+  switch (tree) {
+    case Leaf -> Nothing
+    case Node(k, v, l, r) -> switch (compare(key, k)) {
+      case EQ -> v
+      case LT -> treeLookup(key, compare, l)
+      case GT -> treeLookup(key, compare, r)
+    }
+  }
+}
+
+fun treeRemove (key, compare, tree) {
+  switch (tree) {
+    case Leaf -> Leaf
+    case Node(k, v, l, r) -> switch (compare(key, k)) {
+      case EQ -> Node(k, Nothing, l, r)
+      case LT -> treeRemove(key, compare, l)
+      case GT -> treeRemove(key, compare, r)
+    }
+  }
+}
+
 # Namer
 
-typename Address = Int;
+typename Address = [Int];
 typename AddressSource = () {}~> Address;
 
 # Generate a fresh Address from an AddressSource
@@ -8,17 +86,30 @@ typename AddressSource = () {}~> Address;
 # @returns {(Address, AddressSource)} Pair of the generated Address and an updated generator
 sig makeAddr : (AddressSource) {}~> (Address, AddressSource)
 fun makeAddr (source) {
-  var addr = source();
-  (addr, fun () { addr + 1 })
+  var address = source();
+  (address, fun () { var h :: t = address; (h + 1) :: t })
 }
 
-var addressInit = fun () { 0 } : AddressSource;
+sig makeSource : (Address) {}~> AddressSource
+fun makeSource (address) {
+  fun () { 0 :: address }
+}
+
+sig addrToString : (Address) {}~> String
+fun addrToString (addr) {
+  switch (addr) {
+    case [ ] -> error("Empty address")
+    case (h :: t) -> fold_left(fun (prev, curr) { intToString(curr) ^^ "-" ^^ prev }, intToString(h), t)
+  }
+}
+
+var initialSource = fun () { [ 0 ] } : AddressSource;
 
 
 # Dispatcher
 
 typename DispatcherMessage = forall a, b.
- [| Deregister: Address
+[| Deregister: Address
   | Ignore
   | Send: (a, Address)
   | Broadcast: a
@@ -30,24 +121,34 @@ typename Dispatcher = Process ({ hear:DispatcherMessage,wild });
 # Forward messages to their correct recipient(s)
 # @param {[(Address, fun]} clients
 # @returns {()}
-sig dispatchFun : ([(Address, (b) {:DispatcherMessage}~> () )]) {:DispatcherMessage} ~> ()
+# sig dispatchFun : ([(Address, (b) {:DispatcherMessage}~> () )]) {:DispatcherMessage} ~> ()
+sig dispatchFun : (BinaryTree(Address, (b) {:DispatcherMessage}~> ())) {:DispatcherMessage} ~> ()
 fun dispatchFun (clients) client {
+  fun addrComp (a, b) {
+    switch ((a, b)) {
+      case ([ ], [ ]) -> EQ
+      case ([ ], _) -> LT
+      case (_, [ ]) -> GT
+      case (h1 :: t1, h2 :: t2) ->
+        if (h1 == h2) addrComp(t1, t2)
+        else if (h1 < h2) LT
+        else GT
+    }
+  }
+
   receive {
-    case Register(addr, send) -> { dispatchFun((addr, send) :: clients) }
-    case Deregister(addr)  -> dispatchFun(filter(fun (x) { var (a, c) = x; a <> addr }, clients))
+    case Register(addr, send) -> { dispatchFun(treeInsert(addr, send, addrComp, clients)) }
+    case Deregister(addr)  -> dispatchFun(treeRemove(addr, addrComp, clients))
     case Ignore -> dispatchFun(clients)
     case Send(msg, to) -> {
-      switch (lookup(to, clients)) {
+      switch (treeLookup(to, addrComp, clients)) {
         case Nothing -> ()
         case Just(send) -> send(msg)
       };
       dispatchFun(clients)
     }
     case Broadcast(msg) -> {
-      var tmp = for ((addr, send) <- clients) [
-        # if c accepts msg (by type)
-        send(msg)
-      ];
+      treeForEachValue(fun (send) { send(msg) }, clients);
       dispatchFun(clients)
     }
   }
@@ -85,11 +186,11 @@ fun log (logPrefix)(msg) { print(logPrefix ^^ " " ^^ show(msg)); msg }
 # @returns {Process} Dispatcher process with logging
 sig spawnDispatcher : () ~> Process ({ hear:DispatcherMessage,wild })
 fun spawnDispatcher () {
-  spawnClient { dispatchFun([ ]) } `using` log("[Dispatcher]")
+  spawnClient { dispatchFun(emptyTree) } `using` log("[Dispatcher]")
 }
 
 
-# Renderer
+# Rendering
 
 sig makeTag : (String, [(String, String)], Xml) ~> Xml
 fun makeTag (name, attributes, content) {
@@ -114,14 +215,16 @@ fun resolveDOMDiff (subject, targetState) client {
 
 # Uselet
 
-typename Uselet(model, msg) = forall b::Any. (
+typename Uselet(services) = forall y::Row. (
   AddressSource,
-  b,
+  Services,
   Process ({ hear:DispatcherMessage,wild })
-) {}~> (
+) { |y}~> (
   Xml,
   AddressSource
 );
+
+typename Services = forall a :: Row. ( |a);
 
 var nodeAddrPrefix = "_render_node_";
 
@@ -134,32 +237,31 @@ var nodeAddrPrefix = "_render_node_";
 sig uselet : (
   String,
   model,
-  forall y :: Row, z :: Row. (b::Any) { |y}~> (model, msg) { |z}~> model,
-  forall z :: Row. ((e) ~> ())  { |z}~> (model) { |z}~> Xml
-) -> Uselet(model, msg)
-fun uselet(name: String, model, updt, view) {
-  fun (addressSource: AddressSource, services, dispatcher) {
+  (Services) {}~> (model, msg) {:msg|%}~> model,
+  forall z :: Row. ((e) ~> ()) { |z}~> (model) { |z}~> Uselet(Services)
+) -> Uselet(Services)
+
+fun uselet(name, model, updt, view) {
+  fun (addressSource, services, dispatcher) {
 
     var (addr, gen) = makeAddr(addressSource);
-    var id = nodeAddrPrefix ^^ intToString(addr);
+    var childGen = makeSource(addr);
+    var id = nodeAddrPrefix ^^ addrToString(addr);
 
     fun send (msg) { dispatcher <@ (msg, addr) }
     fun emit (msg) { dispatcher <! (msg) }
 
     var updateWithServices = updt(services);
 
-    fun render (model) {
-      var xml = view(send)(model);
-      var targetDOM = makeTag(name, [("id", id)], xml);
-      var currentDOM = getNodeById(id);
-      resolveDOMDiff(currentDOM, targetDOM);
-    }
-
     fun handler (oldState) {
       receive {
         case msg -> {
           var newState = updateWithServices(oldState, msg);
-          render(newState);
+          var (xml, _) = view(send)(newState)(childGen, services, dispatcher);
+          var targetDOM = makeTag(name, [("id", id)], xml);
+          var currentDOM = getNodeById(id);
+          resolveDOMDiff(currentDOM, targetDOM);
+
           handler(newState)
         }
       }
@@ -168,33 +270,12 @@ fun uselet(name: String, model, updt, view) {
     var handler = spawnClient { handler(model) };
     dispatcher ! Register(addr, fun (msg) { handler ! msg });
 
-    var elem = makeTag(name, [("id", id)], view(send)(model));
+    var (xml, _) = view(send)(model)(childGen, services, dispatcher);
+    var elem = makeTag(name, [("id", id)], xml);
 
     (elem, gen)
   }
 }
-
-# Create page embedding a given uselet
-# @param {Uselet}
-# @param {Services} Record of available services
-# @returns {Page}
-# sig useletPage : ((AddressSource, a, Process ({ hear:DispatcherMessage,wild })) ~%c~> (Xml, AddressSource), ((b) ~%d~> ()) ~%c~> a) ~%c~> Page
-# fun useletPage (u, createServices) {
-#   var addrSource = addressInit;
-#   var dispatcher = spawnDispatcher();
-
-#   var services = createServices(fun (msg) { dispatcher <! msg });
-
-#   var (xml, gen) = u(addrSource, services, dispatcher);
-#   var (xml2, _) = u(gen, services, dispatcher);
-
-#   page
-#     <#>
-#       { xml }
-#       { xml2 }
-#     </#>
-# }
-
 
 fun xmlUselet (xml) {
   fun (gen, _, _) { (xml, gen) }
@@ -205,35 +286,32 @@ fun textUselet (str) {
   fun (gen, _, _) { (stringToXml(str), gen) }
 }
 
-
-var useletApp = fun (name, children, createServices) {
+fun useletApp (name, child, servicesFn) {
   var dispatcher = spawnDispatcher();
-  var services = createServices(fun (msg) { dispatcher <! msg });
+  var services = servicesFn(fun (msg) { dispatcher <! msg});
 
-  var (instances, gen) = fold_right(fun (curr, prev) {
-    var (is, gen) = prev;
-    var (i: Xml, gen2) = curr(gen, services, dispatcher);
-    (i :: is, gen2)
-  }, ([ ], addressInit), children);
+  var (xml, gen) = child(initialSource, services, dispatcher);
+  (makeTag(name, [("id", "")], xml), gen) # TODO
+}
 
-  var (addr, gen2) = makeAddr(gen);
-  var id = nodeAddrPrefix ^^ intToString(addr);
-
-  makeTag(name, [("id", id)], <#>{ for (i <- instances) i }</#>)
-};
-
-
-
-
-
+op u1 <+> u2 {
+  fun (addrSource, services, dispatcher) {
+    var (xml1, gen1) = u1(addrSource, services, dispatcher);
+    var (xml2, gen2) = u2(gen1, services, dispatcher);
+    (<#>
+      { xml1 }
+      { xml2 }
+    </#>, gen2)
+  }
+}
 
 
-
-
-
-
-
-
+op xmlItem +> u {
+  fun (addrSource, services, dispatcher) {
+    var (xml, gen) = u(addrSource, services, dispatcher);
+    (makeTag(xmlItem, [("id", "")], xml), gen) # TODO
+  }
+}
 
 
 
@@ -245,49 +323,69 @@ var useletApp = fun (name, children, createServices) {
 
 
 
+# # kanbanBoardUselet
 
 
+# fun kanbanCardUselet (id, head, body) {
+#   uselet(
+#     "kanbancard",
+#     ( id = id, head = head, body = body ),
+#     fun (services)(model, _) {
+#       # TODO
+#       model
+#     },
+#     fun (send)(model) {
+#       <#>
+#         <a class="btn-round">x</a>
+#         {
+#           if (strlen(model.head) > 0)
+#             <h4 class="card-head">{ stringToXml(model.head) }</h4>
+#           else
+#             <#/>
+#         }
+#         {
+#           if (strlen(body) > 0)
+#             <span class="card-body">{ stringToXml(model.body) }</span>
+#           else
+#             <#/>
+#         }
+#       </#>
+#     }
+#   )
+# }
 
 
-
-
-
-
-
-
-
-
-
-
-# kanbanBoardUselet
-# kanbanColumnUselet
-# kanbanCardUselet
-
-
-# app = useletApp(
-#   [
-#     ("/overview", fun (route) { boardOverviewUselet }),
-#     ("/board/:id", fun (route) { kanbanBoardUselet(boardId) })
-#   ]
-# )
-
+# fun kanbanColumnUselet (id, title, cards) {
+#   uselet(
+#     "kanbancolumn",
+#     ( id = id, title = title, cards = cards ),
+#     fun (services)(model, msg) {
+#       # TODO
+#       model
+#     },
+#     fun (send)(model) {
+#       <#>
+#         <div class="board-col-head">
+#           <h4>{ stringToXml(model.title) }</h4>
+#           <a class="btn-round"> x </a>
+#         </div>
+#         <ul id="{ id }" class="board-col-body">
+#           <a class="ghost-btn"> + </a>
+#         </ul>
+#       </#>
+#     }
+#   )
+# }
 
 
 
 
 
 fun errorUselet (err) {
-  uselet(
-    "error",
-    (),
-    fun (_)(m, _) { m },
-    fun (_)(_) {
-      <#>
-        <style>.error {{ color: rgb(192, 0, 0); border: thin solid rgb(192, 0, 0); background-color: rgba(255, 0, 0, 0.25); padding: .5rem; }}</style>
-        <div class="error">{ err }</div>
-      </#>
-    }
-  )
+  xmlUselet(<#>
+    <style>.error {{ color: rgb(192, 0, 0); border: thin solid rgb(192, 0, 0); background-color: rgba(255, 0, 0, 0.25); padding: .5rem; }}</style>
+    <div class="error">{ err }</div>
+  </#>)
 }
 
 
@@ -338,12 +436,13 @@ fun apiFun (emit) {
       apiFun(emit)
     }
     case AddItemWithBody(body) -> {
+      # insertItem(body);
       var item = ( id = -1, body = body );
       emit(AddSuccess(item));
       apiFun(emit)
     }
     case DeleteItem(id) -> {
-      # emit(DeleteSuccess(id));
+      emit(DeleteSuccess(id));
       apiFun(emit)
     }
   }
@@ -355,11 +454,9 @@ fun spawnApiService (emit) {
 }
 
 
-sig listUpdateFun : ((listApi:Process ({ hear:ListApiMessage, wild }) | _)) -> (Model, ListMessage) ~> Model
 fun listUpdateFun (services)(model, msg) {
   switch (msg) {
     case ValueChanged(newValue) -> {
-      print(show(newValue));
       ( model with value = newValue )
     }
 
@@ -370,7 +467,7 @@ fun listUpdateFun (services)(model, msg) {
       services.listApi ! AddItemWithBody(model.value);
       model
     }
-    case AddSuccess(item: Item) -> ( model with items = item :: model.items )
+    case AddSuccess(item: Item) -> ( model with items = item :: model.items, value = "" )
 
     case DeleteItem(id: ItemId) -> { services.listApi ! DeleteItem(id); model }
     case DeleteSuccess(id: ItemId) -> ( model with items = filter(fun (i) { i.id <> id }, model.items) )
@@ -380,43 +477,18 @@ fun listUpdateFun (services)(model, msg) {
 }
 
 
-sig listRenderFun : forall e::Row, f::Row, g::Row. ((ListMessage) ~%e~> ()) ~%f~> (Model) ~%g~> Xml
 fun listRenderFun (send)(model: Model) {
-  <#>
-    <style>
-      ul {{
-        font-family: sans-serif;
-        margin: 1rem 0;
-        padding: 0;
-      }}
+  var list = fold_left(fun (res, curr) { res <+> listItemUselet(curr.body) }, xmlUselet(<#/>), model.items);
 
-      li {{
-        display: block;
-        list-style-type: none;
-        border-bottom: thin solid #ccc;
-        padding: .5rem;
-      }}
-
-      li:last-child {{
-        border: none;
-      }}
-
-      li:nth-of-type(2n) {{
-        background-color: #eee;
-      }}
-    </style>
-    <input type="text" value="{ model.value }" l:onkeyup="{ send(ValueChanged(domGetPropertyFromRef(getTarget(event), "value"))) }" />
-    <button l:onclick="{ send(AddItem) }">Add</button>
-    <ul>
-      {
-        for (item <- model.items) {
-          <#>
-            <li>{ stringToXml(item.body) }</li>
-          </#>
-        }
-      }
-    </ul>
-  </#>
+  xmlUselet(<style>
+    ul {{ font-family: sans-serif; margin: 1rem 0; padding: 0; }}
+    li {{ display: block; list-style-type: none; border-bottom: thin solid #ccc; padding: .5rem; }}
+    li:last-child {{ border: none; }}
+    li:nth-of-type(2n) {{ background-color: #eee; }}
+  </style>) <+>
+  xmlUselet(<input type="text" value="{ model.value }" l:onkeyup="{ send(ValueChanged(domGetPropertyFromRef(getTarget(event), "value"))) }" />) <+>
+  xmlUselet(<button l:onclick="{ send(AddItem) }">Add</button>) <+>
+  list
 }
 
 
@@ -429,42 +501,63 @@ fun listUselet () {
   )
 }
 
-sig services : ((ListMessage) {:ListApiMessage}~> ()) ~> (listApi: Process ({ hear: ListApiMessage, wild }))
+sig services : ((ListMessage) {:ListApiMessage}~> ()) ~> Services
 fun services(emit) {
   ( listApi = spawnApiService(emit) )
 }
 
 
 fun myApp () {
-  var app = useletApp("myapp", [
-
-    xmlUselet(<header><h1>Yes</h1></header>),
-    textUselet("Lorem ipsum dolor sit amet consecutur adipisci elit."),
-    errorUselet(<h1>404 Not found</h1>),
-    listUselet(),
-    listUselet()
-
-  ], services);
+  var (app, _) = useletApp("myapp",
+    ("div" +> (textUselet("Hello") <+>
+    xmlUselet(<strong>World</strong>))) <+>
+    errorUselet(<h1>I am an error</h1>) <+>
+    listUselet() <+>
+    listUselet() <+>
+    # kanbanCardUselet(0, "Hello", "World") <+>
+    staticListUselet([ "Hello", "World" ]),
+  services);
 
   page
     <html>
       <head>
         <meta charset="utf-8" />
         <title>My App</title>
+        <link rel="stylesheet" href="/css/style.css" />
       </head>
       <body>
+        <header><h1>Kanban</h1></header>
         <main>
           { app }
         </main>
       </body>
     </html>
-
 }
+
+
+fun listItemUselet (str) {
+  uselet("li", (), fun (_)(m, _) { m }, fun (_)(_) { textUselet(str) })
+}
+
+
+fun staticListUselet (items: [String]) {
+  var us = for (i <- items) [ listItemUselet(i) ];
+  if (length(us) < 1) { xmlUselet(<ul/>) }
+  else if (length(us) == 1) { "ul" +> hd(us) }
+  else {
+    "ul" +> fold_left(fun (curr, prev) { curr <+> prev }, hd(us), tl(us))
+  }
+}
+
 
 
 sig main : () ~> ()
 fun main () {
-  addRoute("/", fun (_, _) { myApp() });
+  addStaticRoute("/css", "css", [
+    ("css", "text/css")
+  ]);
+
+  addRoute("/u", fun (_, _) { myApp() });
 
   servePages()
 }
