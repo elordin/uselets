@@ -79,23 +79,18 @@ fun treeRemove (key, compare, tree) {
 # Namer
 
 typename Address = [Int];
-typename AddressSource = () {}~> Address;
+typename AddressSource(e::Row) = () { |e}~> Address;
 
 # Generate a fresh Address from an AddressSource
 # @param {AddressSource}
 # @returns {(Address, AddressSource)} Pair of the generated Address and an updated generator
-sig makeAddr : (AddressSource) {}~> (Address, AddressSource)
 fun makeAddr (source) {
   var address = source();
   (address, fun () { var h :: t = address; (h + 1) :: t })
 }
 
-sig makeSource : (Address) {}~> AddressSource
-fun makeSource (address) {
-  fun () { 0 :: address }
-}
+fun makeSource (address) { fun () { 0 :: address } }
 
-sig addrToString : (Address) {}~> String
 fun addrToString (addr) {
   switch (addr) {
     case [ ] -> error("Empty address")
@@ -103,27 +98,26 @@ fun addrToString (addr) {
   }
 }
 
-var initialSource = fun () { [ 0 ] } : AddressSource;
+var initialSource = fun () { [ 0 ] } : AddressSource({ |e});
 
 
 # Dispatcher
 
-typename DispatcherMessage = forall a, b.
-[| Deregister: Address
+typename DispatcherMessage(i, o) =
+ [| Deregister: Address
   | Ignore
-  | Send: (a, Address)
-  | Broadcast: a
-  | Register: (Address, b)
+  | Send: (o, Address)
+  | Broadcast: o
+  | Register: (Address, i)
   |];
-typename Dispatcher = Process ({ hear:DispatcherMessage,wild });
+
+typename Dispatcher(i, o) = Process ({ hear:DispatcherMessage(i, o), wild });
 
 # Dispatcher handler
 # Forward messages to their correct recipient(s)
 # @param {[(Address, fun]} clients
 # @returns {()}
-# sig dispatchFun : ([(Address, (b) {:DispatcherMessage}~> () )]) {:DispatcherMessage} ~> ()
-sig dispatchFun : (BinaryTree(Address, (b) {:DispatcherMessage}~> ())) {:DispatcherMessage} ~> ()
-fun dispatchFun (clients) client {
+fun dispatchFun (clients: BinaryTree(Address, (o) {:DispatcherMessage(%, o)|c}~> ())) client {
   fun addrComp (a, b) {
     switch ((a, b)) {
       case ([ ], [ ]) -> EQ
@@ -155,22 +149,16 @@ fun dispatchFun (clients) client {
 }
 
 # Broadcast
-sig <! : (Process ({ hear:DispatcherMessage,wild }), b) ~> ()
 op disp <! msg {
-  disp ! (Broadcast(msg) : DispatcherMessage)
+  disp ! (Broadcast(msg) : DispatcherMessage(i, o))
 }
 
 # Directed send
-sig <@ : (Process ({ hear:DispatcherMessage,wild }), (b, Address)) ~> ()
 op disp <@ (msg, to: Address) {
-  disp ! (Send(msg, to) : DispatcherMessage)
+  disp ! (Send(msg, to) : DispatcherMessage(i, o))
 }
 
-# Mix in function applied to all messages received
-# @param {Process} The recipient of the message
-# @param {fun} Mutator for the messages
-# @returns {Process}
-sig using : forall m::Any. (Process({ hear: a,wild }), (b) {:b}~> a) ~> Process({ hear: b,wild })
+
 fun using (recp, plugin) {
   fun helper () {
     receive {
@@ -180,11 +168,8 @@ fun using (recp, plugin) {
   spawnClient { helper() }
 }
 
-sig log : (String) ~> (b) ~> b
 fun log (logPrefix)(msg) { print(logPrefix ^^ " " ^^ show(msg)); msg }
 
-# @returns {Process} Dispatcher process with logging
-sig spawnDispatcher : () ~> Process ({ hear:DispatcherMessage,wild })
 fun spawnDispatcher () {
   spawnClient { dispatchFun(emptyTree) } `using` log("[Dispatcher]")
 }
@@ -192,7 +177,6 @@ fun spawnDispatcher () {
 
 # Rendering
 
-sig makeTag : (String, [(String, String)], Xml) ~> Xml
 fun makeTag (name, attributes, content) {
   # makeXml(name, attributes, content)
   # TODO
@@ -207,7 +191,6 @@ fun makeTag (name, attributes, content) {
 # @param {DomNode} subject DOM Subtree to mutate into target state
 # @param {Xml} targetState Xml representation the subject is to be in
 # @returns {()}
-sig resolveDOMDiff : (DomNode, Xml) ~> ()
 fun resolveDOMDiff (subject, targetState) client {
   replaceNode(targetState, subject)
   # replaceChildrenInShadow(subject, targetState);
@@ -215,65 +198,40 @@ fun resolveDOMDiff (subject, targetState) client {
 
 # Uselet
 
-typename Uselet(services) = forall y::Row. (
-  AddressSource,
-  Services,
-  Process ({ hear:DispatcherMessage,wild })
-) { |y}~> (
-  Xml,
-  AddressSource
-);
-
-typename Services = forall a :: Row. ( |a);
-
 var nodeAddrPrefix = "_render_node_";
 
-# Create uselet from name, model, update, and view
-# @param {String} Name
-# @param {_} Model
-# @param {fun} Update function
-# @param {fun} View function
-# @returns {Uselet}
-sig uselet : (
-  String,
-  model,
-  (Services) {}~> (model, msg) {:msg|%}~> model,
-  forall z :: Row. ((e) ~> ()) { |z}~> (model) { |z}~> Uselet(Services)
-) -> Uselet(Services)
-
-fun uselet(name, model, updt, view) {
+fun uselet (name, model, updt, view) {
   fun (addressSource, services, dispatcher) {
 
     var (addr, gen) = makeAddr(addressSource);
     var childGen = makeSource(addr);
     var id = nodeAddrPrefix ^^ addrToString(addr);
 
-    fun send (msg) { dispatcher <@ (msg, addr) }
-    fun emit (msg) { dispatcher <! (msg) }
+    fun send (msg) { dispatcher ! Send(msg, addr) }
+    fun emit (msg) { dispatcher ! Broadcast(msg) }
 
     var updateWithServices = updt(services);
 
-    fun handler (oldState) {
+    fun hndlr (oldState) {
       receive {
         case msg -> {
           var newState = updateWithServices(oldState, msg);
           var (xml, _) = view(send)(newState)(childGen, services, dispatcher);
-          var targetDOM = makeTag(name, [("id", id)], xml);
+          var tag = makeTag(name, [("id", id)], xml);
           var currentDOM = getNodeById(id);
-          resolveDOMDiff(currentDOM, targetDOM);
+          resolveDOMDiff(currentDOM, tag);
 
-          handler(newState)
+          hndlr(newState)
         }
       }
     }
 
-    var handler = spawnClient { handler(model) };
-    dispatcher ! Register(addr, fun (msg) { handler ! msg });
+    var hndlr = spawnClient { hndlr(model) };
+    dispatcher ! Register(addr, fun (msg) { hndlr ! msg });
 
     var (xml, _) = view(send)(model)(childGen, services, dispatcher);
-    var elem = makeTag(name, [("id", id)], xml);
-
-    (elem, gen)
+    var tag = makeTag(name, [("id", id)], xml);
+    (tag, gen)
   }
 }
 
@@ -281,14 +239,14 @@ fun xmlUselet (xml) {
   fun (gen, _, _) { (xml, gen) }
 }
 
-
 fun textUselet (str) {
   fun (gen, _, _) { (stringToXml(str), gen) }
 }
 
 fun useletApp (name, child, servicesFn) {
   var dispatcher = spawnDispatcher();
-  var services = servicesFn(fun (msg) { dispatcher <! msg});
+
+  var services = servicesFn(dispatcher);
 
   var (xml, gen) = child(initialSource, services, dispatcher);
   (makeTag(name, [("id", "")], xml), gen) # TODO
@@ -305,7 +263,6 @@ op u1 <+> u2 {
   }
 }
 
-
 op xmlItem +> u {
   fun (addrSource, services, dispatcher) {
     var (xml, gen) = u(addrSource, services, dispatcher);
@@ -319,68 +276,6 @@ op xmlItem +> u {
 
 
 
-
-
-
-
-# # kanbanBoardUselet
-
-
-# fun kanbanCardUselet (id, head, body) {
-#   uselet(
-#     "kanbancard",
-#     ( id = id, head = head, body = body ),
-#     fun (services)(model, _) {
-#       # TODO
-#       model
-#     },
-#     fun (send)(model) {
-#       <#>
-#         <a class="btn-round">x</a>
-#         {
-#           if (strlen(model.head) > 0)
-#             <h4 class="card-head">{ stringToXml(model.head) }</h4>
-#           else
-#             <#/>
-#         }
-#         {
-#           if (strlen(body) > 0)
-#             <span class="card-body">{ stringToXml(model.body) }</span>
-#           else
-#             <#/>
-#         }
-#       </#>
-#     }
-#   )
-# }
-
-
-# fun kanbanColumnUselet (id, title, cards) {
-#   uselet(
-#     "kanbancolumn",
-#     ( id = id, title = title, cards = cards ),
-#     fun (services)(model, msg) {
-#       # TODO
-#       model
-#     },
-#     fun (send)(model) {
-#       <#>
-#         <div class="board-col-head">
-#           <h4>{ stringToXml(model.title) }</h4>
-#           <a class="btn-round"> x </a>
-#         </div>
-#         <ul id="{ id }" class="board-col-body">
-#           <a class="ghost-btn"> + </a>
-#         </ul>
-#       </#>
-#     }
-#   )
-# }
-
-
-
-
-
 fun errorUselet (err) {
   xmlUselet(<#>
     <style>.error {{ color: rgb(192, 0, 0); border: thin solid rgb(192, 0, 0); background-color: rgba(255, 0, 0, 0.25); padding: .5rem; }}</style>
@@ -388,17 +283,14 @@ fun errorUselet (err) {
   </#>)
 }
 
-
 typename ItemId = Int;
 typename Item = (id: ItemId, body: String);
 typename Error = String;
 
 typename Model = (items: [Item], value: String);
 
-typename ListApiMessage = [| GetData | AddItemWithBody: String | DeleteItem: ItemId |];
-
-typename ListMessage = [|
-    Refresh
+typename ListMessage =
+ [| Refresh
   | Data: [Item]
   | AddItem
   | AddSuccess: Item
@@ -406,8 +298,7 @@ typename ListMessage = [|
   | DeleteSuccess: ItemId
   | APIError: String
   | ValueChanged: String
-|];
-
+  |];
 
 var db = database "uselet";
 
@@ -427,32 +318,30 @@ fun insertItem (body) {
   ]
 }
 
-sig apiFun : ((ListMessage) {:ListApiMessage}~> ()) {:ListApiMessage}~> ()
-fun apiFun (emit) {
+fun apiFun (disp) {
   receive {
     case GetData -> {
       var entries = getAllListItems();
-      emit(Data(entries));
-      apiFun(emit)
+      disp <! Data(entries);
+      apiFun(disp)
     }
     case AddItemWithBody(body) -> {
       # insertItem(body);
       var item = ( id = -1, body = body );
-      emit(AddSuccess(item));
-      apiFun(emit)
+      disp <! AddSuccess(item);
+      apiFun(disp)
     }
     case DeleteItem(id) -> {
-      emit(DeleteSuccess(id));
-      apiFun(emit)
+      disp <! DeleteSuccess(id);
+      apiFun(disp)
     }
+    case _ -> apiFun(disp)
   }
 }
 
-sig spawnApiService : ((ListMessage) {:ListApiMessage}~> ()) ~> Process ({ hear:ListApiMessage,wild })
-fun spawnApiService (emit) {
-  spawnClient { apiFun(emit) }
+fun spawnApiService (disp) {
+  spawnClient { apiFun(disp) }
 }
-
 
 fun listUpdateFun (services)(model, msg) {
   switch (msg) {
@@ -460,7 +349,10 @@ fun listUpdateFun (services)(model, msg) {
       ( model with value = newValue )
     }
 
-    case Refresh -> { services.listApi ! GetData; model }
+    case Refresh -> {
+      services.listApi ! GetData;
+      model
+    }
     case Data(data: [Item]) -> ( model with items = data )
 
     case AddItem -> {
@@ -469,16 +361,22 @@ fun listUpdateFun (services)(model, msg) {
     }
     case AddSuccess(item: Item) -> ( model with items = item :: model.items, value = "" )
 
-    case DeleteItem(id: ItemId) -> { services.listApi ! DeleteItem(id); model }
+    case DeleteItem(id: ItemId) -> {
+      services.listApi ! DeleteItem(id);
+      model
+    }
     case DeleteSuccess(id: ItemId) -> ( model with items = filter(fun (i) { i.id <> id }, model.items) )
 
     case APIError(err: String) -> { error(err); model }
+
+    case _ -> model
   }
+
 }
 
 
-fun listRenderFun (send)(model: Model) {
-  var list = fold_left(fun (res, curr) { res <+> listItemUselet(curr.body) }, xmlUselet(<#/>), model.items);
+fun listRenderFun (itemUselet)(send)(model: Model) {
+  var list = fold_left(fun (res, curr) { res <+> itemUselet(curr.body) }, xmlUselet(<#/>), model.items);
 
   xmlUselet(<style>
     ul {{ font-family: sans-serif; margin: 1rem 0; padding: 0; }}
@@ -492,30 +390,28 @@ fun listRenderFun (send)(model: Model) {
 }
 
 
-fun listUselet () {
+fun listUselet (itemUselet) {
   uselet(
     "mylistelem",
     ( value = "", items = getAllListItems() ): Model,
     listUpdateFun,
-    listRenderFun
+    listRenderFun(itemUselet)
   )
 }
 
-sig services : ((ListMessage) {:ListApiMessage}~> ()) ~> Services
-fun services(emit) {
-  ( listApi = spawnApiService(emit) )
+fun services(disp) {
+  ( listApi = spawnApiService(disp) )
 }
-
 
 fun myApp () {
   var (app, _) = useletApp("myapp",
     ("div" +> (textUselet("Hello") <+>
     xmlUselet(<strong>World</strong>))) <+>
     errorUselet(<h1>I am an error</h1>) <+>
-    listUselet() <+>
-    listUselet() <+>
-    # kanbanCardUselet(0, "Hello", "World") <+>
+    listUselet(fancyListItemUselet) <+>
+    listUselet(listItemUselet) <+>
     staticListUselet([ "Hello", "World" ]),
+
   services);
 
   page
@@ -536,7 +432,11 @@ fun myApp () {
 
 
 fun listItemUselet (str) {
-  uselet("li", (), fun (_)(m, _) { m }, fun (_)(_) { textUselet(str) })
+  "li" +> textUselet(str)
+}
+
+fun fancyListItemUselet (str) {
+  "li" +> xmlUselet(<span class="fancy">{ stringToXml(str) }</span>)
 }
 
 
