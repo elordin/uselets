@@ -1,0 +1,90 @@
+typename Ord = [| LT | GT | EQ |];
+typename BinaryTree(key, value) = [| Node: (key, Maybe(value), BinaryTree(key, value), BinaryTree(key, value)) | Leaf |];
+
+var emptyTree = Leaf;
+
+fun treeInsert (key, value, compare, tree) {
+  switch (tree) {
+    case Leaf -> Node(key, Just(value), Leaf, Leaf)
+    case Node(k, v, l, r) -> switch (compare(key, k)) {
+      case EQ -> Node(k, Just(value), l, r)
+      case LT -> Node(k, v, treeInsert(key, value, compare, l), r)
+      case GT -> Node(k, v, l, treeInsert(key, value, compare, r))
+    }
+  }
+}
+
+fun treeFromList (kvps, compare) {
+  fold_left(fun (t, kvp) { var (k, v) = kvp; treeInsert(k, v, compare, t) }, emptyTree, kvps)
+}
+
+fun treeToList (tree) {
+  switch (tree) {
+    case Leaf -> [ ]
+    case Node(k, v, l, r) -> {
+      fun filterJustToValue (xs) {
+        switch (xs) {
+          case [ ] -> [ ]
+          case (k, Nothing) :: t -> filterJustToValue(t)
+          case (k, Just(v)) :: t -> (k, v) :: filterJustToValue(t)
+        }
+      }
+      filterJustToValue((k, v) :: treeToList(l) ++ treeToList(r))
+    }
+  }
+}
+
+fun treeMapValues (f, tree) {
+  switch (tree) {
+    case Leaf -> Leaf
+    case Node(k, Nothing, l, r) -> Node(k, Nothing, treeMapValues(f, l), treeMapValues(f, r))
+    case Node(k, Just(v), l, r) -> Node(k, Just(f(v)), treeMapValues(f, l), treeMapValues(f, r))
+  }
+}
+
+fun treeForEachValue (f, tree) {
+  switch (tree) {
+    case Leaf -> ()
+    case Node(k, Nothing, l, r) -> ()
+    case Node(k, Just(v), l, r) -> {
+      f(v);
+      treeForEachValue(f, l);
+      treeForEachValue(f, r);
+    }
+  }
+}
+
+fun treeForEachKeyValue (f, tree) {
+  switch (tree) {
+    case Leaf -> ()
+    case Node(k, Nothing, l, r) -> ()
+    case Node(k, Just(v), l, r) -> {
+      f(k, v);
+      treeForEachKeyValue(f, l);
+      treeForEachKeyValue(f, r);
+    }
+  }
+}
+
+fun treeLookup (key, compare, tree) {
+  switch (tree) {
+    case Leaf -> Nothing
+    case Node(k, v, l, r) -> switch (compare(key, k)) {
+      case EQ -> v
+      case LT -> treeLookup(key, compare, l)
+      case GT -> treeLookup(key, compare, r)
+    }
+  }
+}
+
+fun treeRemove (key, compare, tree) {
+  switch (tree) {
+    case Leaf -> Leaf
+    case Node(k, v, l, r) -> switch (compare(key, k)) {
+      case EQ -> Node(k, Nothing, l, r)
+      case LT -> treeRemove(key, compare, l)
+      case GT -> treeRemove(key, compare, r)
+    }
+  }
+}
+

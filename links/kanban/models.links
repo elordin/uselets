@@ -1,0 +1,25 @@
+typename User = (
+  id: Int,
+  name: String,
+  password: String
+);
+
+typename Board = (
+  id: Int,
+  name: String,
+  owner: Int
+);
+
+typename BoardColumn = (
+  id: Int,
+  name: String,
+  index: Int,
+  board: Int
+);
+
+typename Card = (
+  id: Int,
+  head: String,
+  body: String,
+  column: Int
+);

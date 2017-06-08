@@ -307,34 +307,8 @@ var listItemsTable = table "items"
   where id readonly
   from db;
 
-fun getAllListItems () {
-  for (i <-- listItemsTable)
-    [ i ]
-}
-
-fun insertItem (body) {
-  insert listItemsTable values (body) [
-    (body = body)
-  ]
-}
-
 fun apiFun (disp) {
   receive {
-    case GetData -> {
-      var entries = getAllListItems();
-      disp <! Data(entries);
-      apiFun(disp)
-    }
-    case AddItemWithBody(body) -> {
-      # insertItem(body);
-      var item = ( id = -1, body = body );
-      disp <! AddSuccess(item);
-      apiFun(disp)
-    }
-    case DeleteItem(id) -> {
-      disp <! DeleteSuccess(id);
-      apiFun(disp)
-    }
     case _ -> apiFun(disp)
   }
 }
@@ -343,75 +317,13 @@ fun spawnApiService (disp) {
   spawnClient { apiFun(disp) }
 }
 
-fun listUpdateFun (services)(model, msg) {
-  switch (msg) {
-    case ValueChanged(newValue) -> {
-      ( model with value = newValue )
-    }
-
-    case Refresh -> {
-      services.listApi ! GetData;
-      model
-    }
-    case Data(data: [Item]) -> ( model with items = data )
-
-    case AddItem -> {
-      services.listApi ! AddItemWithBody(model.value);
-      model
-    }
-    case AddSuccess(item: Item) -> ( model with items = item :: model.items, value = "" )
-
-    case DeleteItem(id: ItemId) -> {
-      services.listApi ! DeleteItem(id);
-      model
-    }
-    case DeleteSuccess(id: ItemId) -> ( model with items = filter(fun (i) { i.id <> id }, model.items) )
-
-    case APIError(err: String) -> { error(err); model }
-
-    case _ -> model
-  }
-
-}
-
-
-fun listRenderFun (itemUselet)(send)(model: Model) {
-  var list = fold_left(fun (res, curr) { res <+> itemUselet(curr.body) }, xmlUselet(<#/>), model.items);
-
-  xmlUselet(<style>
-    ul {{ font-family: sans-serif; margin: 1rem 0; padding: 0; }}
-    li {{ display: block; list-style-type: none; border-bottom: thin solid #ccc; padding: .5rem; }}
-    li:last-child {{ border: none; }}
-    li:nth-of-type(2n) {{ background-color: #eee; }}
-  </style>) <+>
-  xmlUselet(<input type="text" value="{ model.value }" l:onkeyup="{ send(ValueChanged(domGetPropertyFromRef(getTarget(event), "value"))) }" />) <+>
-  xmlUselet(<button l:onclick="{ send(AddItem) }">Add</button>) <+>
-  list
-}
-
-
-fun listUselet (itemUselet) {
-  uselet(
-    "mylistelem",
-    ( value = "", items = getAllListItems() ): Model,
-    listUpdateFun,
-    listRenderFun(itemUselet)
-  )
-}
-
 fun services(disp) {
-  ( listApi = spawnApiService(disp) )
+  ( api = spawnApiService(disp) )
 }
 
 fun myApp () {
   var (app, _) = useletApp("myapp",
-    ("div" +> (textUselet("Hello") <+>
-    xmlUselet(<strong>World</strong>))) <+>
-    errorUselet(<h1>I am an error</h1>) <+>
-    listUselet(fancyListItemUselet) <+>
-    listUselet(listItemUselet) <+>
-    staticListUselet([ "Hello", "World" ]),
-
+    kanbanUselet(kanbanOverview, kanbanBoardUselet(kanbanColumnUselet(kanbanCardUselet)))
   services);
 
   page

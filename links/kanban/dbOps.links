@@ -1,0 +1,46 @@
+open Tables
+
+fun getAllBoards () server {
+  for (b <-- boardsTable)
+    [ b ]
+}
+
+fun getBoardById (boardId) server {
+  var results = for (b <-- boardsTable)
+    where (b.id == boardId)
+    [ b ];
+  if (length(results) == 0) {
+    error("")
+  } else {
+    hd(results)
+  }
+}
+
+fun getColumnsByBoard (boardId) server {
+  for (c <-- columnsTable)
+    where (c.board == boardId)
+    [ c ]
+}
+
+fun getColumnById (colId) server {
+  var results = for (c <-- columnsTable)
+    where (c.id == colId)
+    [ c ];
+  if (length(results) == 0) {
+    error("")
+  } else {
+    hd(results)
+  }
+}
+
+fun getCardsByColumn (colId) server {
+  for (c <-- cardsTable)
+    where (c.column == colId)
+    [ c ]
+}
+
+fun updateCard (card) server {
+  update (c <-- cardsTable)
+    where (c.id == card.id)
+    set (body = card.body, head = card.head)
+}

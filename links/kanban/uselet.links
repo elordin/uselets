@@ -1,0 +1,215 @@
+open BinaryTree
+
+# Namer
+
+typename Address = [Int];
+typename AddressSource(e::Row) = () { |e}~> Address;
+
+# Generate a fresh Address from an AddressSource
+# @param {AddressSource}
+# @returns {(Address, AddressSource)} Pair of the generated Address and an updated generator
+fun makeAddr (source) {
+  var address = source();
+  (address, fun () { var h :: t = address; (h + 1) :: t })
+}
+
+fun makeSource (address) { fun () { 0 :: address } }
+
+fun addrToString (addr) {
+  switch (addr) {
+    case [ ] -> error("Empty address")
+    case (h :: t) -> fold_left(fun (prev, curr) { intToString(curr) ^^ "-" ^^ prev }, intToString(h), t)
+  }
+}
+
+fun isChildAddr(child, parent) {
+  (length(child) == length(parent) + 1) && (tl(child) == parent)
+}
+
+var initialSource = fun () { [ 0 ] } : AddressSource({ |e});
+
+
+# Dispatcher
+
+typename DispatcherMessage(i, o) =
+ [| Deregister: Address
+  | Ignore
+  | Send: (o, Address)
+  | SendToChildren: (o, Address)
+  | Broadcast: o
+  | Register: (Address, i)
+  |];
+
+# Dispatcher handler
+# Forward messages to their correct recipient(s)
+# @param {[(Address, fun]} clients
+# @returns {()}
+fun dispatchFun (clients) client {
+  fun addrComp (a, b) {
+    switch ((a, b)) {
+      case ([ ], [ ]) -> EQ
+      case ([ ], _) -> LT
+      case (_, [ ]) -> GT
+      case (h1 :: t1, h2 :: t2) ->
+        if (h1 == h2) addrComp(t1, t2)
+        else if (h1 < h2) LT
+        else GT
+    }
+  }
+
+  receive {
+    case Register(addr, send) -> { dispatchFun(treeInsert(addr, send, addrComp, clients)) }
+    case Deregister(addr)  -> dispatchFun(treeRemove(addr, addrComp, clients))
+    case Ignore -> dispatchFun(clients)
+    case Send(msg, to) -> {
+      switch (treeLookup(to, addrComp, clients)) {
+        case Nothing -> ()
+        case Just(send) -> send(msg)
+      };
+      dispatchFun(clients)
+    }
+    case SendToChildren(msg, parent) -> {
+      treeForEachKeyValue(fun (addr, send) {
+        print(show(addr) ^^ " < " ^^ show(parent) ^^ " = " ^^ show(isChildAddr(addr, parent)));
+        if (isChildAddr(addr, parent)) {
+          send(msg)
+        } else { () }
+      }, clients);
+      dispatchFun(clients)
+    }
+    case Broadcast(msg) -> {
+      treeForEachValue(fun (send) { send(msg) }, clients);
+      dispatchFun(clients)
+    }
+  }
+}
+
+# Broadcast
+op disp <! msg {
+  disp ! Broadcast(msg)
+}
+
+# Directed send
+op disp <@ (msg, to) {
+  disp ! Send(msg, to)
+}
+
+# Send to all children of parent
+op disp <<! (msg, parent) {
+  disp ! SendToChildren(msg, parent)
+}
+
+
+fun using (recp, plugin) {
+  fun helper () {
+    receive {
+      case msg -> { recp ! plugin(msg); helper() }
+    }
+  }
+  spawnClient { helper() }
+}
+
+fun log (logPrefix)(msg) { print(logPrefix ^^ " " ^^ show(msg)); msg }
+
+fun spawnDispatcher () {
+  spawnClient { dispatchFun(emptyTree) } `using` log("[Dispatcher]")
+}
+
+
+# Rendering
+
+fun makeTag (name, attributes, content) {
+  # makeXml(name, attributes, content)
+  # TODO
+  var id = fromJust(lookup("id", attributes));
+
+  <div is="{ name }" id="{ id }">
+    { content }
+  </div>
+}
+
+# Resolve diff of two DOM (sub-)trees
+# @param {DomNode} subject DOM Subtree to mutate into target state
+# @param {Xml} targetState Xml representation the subject is to be in
+# @returns {()}
+fun resolveDOMDiff (subject, targetState) client {
+  replaceNode(targetState, subject)
+  # replaceChildrenInShadow(subject, targetState);
+}
+
+# Uselet
+
+var nodeAddrPrefix = "_render_node_";
+
+fun uselet (name, model, updt, view) {
+  fun (addressSource, services, dispatcher) {
+
+    var (addr, gen) = makeAddr(addressSource);
+    var childGen = makeSource(addr);
+    var id = nodeAddrPrefix ^^ addrToString(addr);
+
+    var context = (
+      services = services,
+      self = addr,
+      dispatcher = dispatcher
+    );
+
+    fun hndlr (oldState) {
+      receive {
+        case msg -> {
+          var newState = updt(context)(oldState, msg);
+          if (newState <> oldState) {
+            var (xml, _) = view(context)(newState)(childGen, services, dispatcher);
+            var tag = makeTag(name, [("id", id)], xml);
+            var currentDOM = getNodeById(id);
+            resolveDOMDiff(currentDOM, tag);
+          } else { () };
+
+          hndlr(newState)
+        }
+      }
+    }
+
+    var hndlr = spawnClient { hndlr(model) };
+    dispatcher ! Register(addr, fun (msg) { hndlr ! msg });
+
+    var (xml, _) = view(context)(model)(childGen, services, dispatcher);
+    var tag = makeTag(name, [("id", id)], xml);
+    (tag, gen)
+  }
+}
+
+fun xmlUselet (xml) {
+  fun (gen, _, _) { (xml, gen) }
+}
+
+fun textUselet (str) {
+  fun (gen, _, _) { (stringToXml(str), gen) }
+}
+
+fun useletApp (name, child, servicesFn) {
+  var dispatcher = spawnDispatcher();
+
+  var services = servicesFn(dispatcher);
+
+  var (xml, gen) = child(initialSource, services, dispatcher);
+  (makeTag(name, [("id", "")], xml), gen) # TODO
+}
+
+op u1 <+> u2 {
+  fun (addrSource, services, dispatcher) {
+    var (xml1, gen1) = u1(addrSource, services, dispatcher);
+    var (xml2, gen2) = u2(gen1, services, dispatcher);
+    (<#>
+      { xml1 }
+      { xml2 }
+    </#>, gen2)
+  }
+}
+
+op xmlItem +> u {
+  fun (addrSource, services, dispatcher) {
+    var (xml, gen) = u(addrSource, services, dispatcher);
+    (makeTag(xmlItem, [("id", "")], xml), gen) # TODO
+  }
+}

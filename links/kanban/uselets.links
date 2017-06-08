@@ -1,0 +1,219 @@
+open Uselet
+open DbOps
+
+typename KanbanState = [| Overview | Board: Int |];
+
+fun kanbanUselet (overviewUselet, boardUselet) {
+  uselet(
+    "kanbanapp",
+    ( state = Overview ),
+    fun (context) (model, msg) {
+      switch (msg) {
+        case ShowOverview -> {
+          context.services.nav ! Navigate(OverviewPage);
+          model
+        }
+        case Navigate(OverviewPage) -> ( model with state = Overview )
+        case Navigate(BoardPage(id)) -> ( model with state = Board(id) )
+        case _ -> model
+      }
+    },
+    fun (context) (model) {
+      xmlUselet(<header><h1 l:onclick="{ context.dispatcher <@ (ShowOverview, context.self) }">Kanban</h1></header>) <+>
+      ("main" +>
+        (switch (model.state) {
+          case Overview -> overviewUselet()
+          case Board(id) -> boardUselet(id)
+        })
+      )
+    }
+  )
+}
+
+fun kanbanOverviewUselet () {
+  var boards = getAllBoards();
+
+  uselet(
+    "kanbanoverview",
+    boards,
+    fun (context) (model, msg) {
+      switch (msg) {
+        case ShowOverview -> {
+          context.services.nav ! Navigate(OverviewPage);
+          model
+        }
+        case ShowBoard(id) -> {
+          context.services.nav ! Navigate(BoardPage(id));
+          model
+        }
+        case _ -> model
+      }
+    },
+    fun (context) (model) {
+      xmlUselet(<h2>Boards</h2>) <+> (
+      "ul" +>
+        fold_left(
+          fun (a, b) { a <+> b },
+          xmlUselet(<#/>),
+          map(
+            fun (board) {
+              "li" +>
+                xmlUselet(<span l:onclick="{ context.dispatcher <@ (ShowBoard(board.id), context.self) }">{ stringToXml(board.name) }</span>)
+            },
+            model
+          )
+        )
+      )
+    }
+  )
+}
+
+fun kanbanBoardUselet (columnUselet) (boardId) {
+  var columns = reverse(getColumnsByBoard(boardId));
+  var board = getBoardById(boardId);
+
+  uselet(
+    "kanbanboard",
+    ( board = board, columns = columns),
+    fun (_) (model, msg) { model },
+    fun (_) (model) {
+      xmlUselet(<h3>{ stringToXml(model.board.name) }</h3>) <+>
+      ("kanbancolumns" +> fold_left(fun (a, b) { a <+> b }, xmlUselet(<#/>), map(fun (col) { columnUselet(col.id) }, model.columns)))
+    }
+  )
+}
+
+fun kanbanColumnUselet (cardUselet) (columnId) {
+  var column = getColumnById(columnId);
+  var cards = getCardsByColumn(columnId);
+
+  uselet(
+    "kanbancol",
+    ( cards = cards, column = column, newCard = ( head = "", body ="" ) ),
+    fun (context) (model, msg) {
+      switch (msg) {
+        case UpdateNewHead(head) -> ( model with newCard = ( model.newCard with head = head ))
+        case UpdateNewBody(body) -> ( model with newCard = ( model.newCard with body = body ))
+        case CreateNewCard -> ( model with
+          cards = (
+            id = -1,
+            head = model.newCard.head,
+            body = model.newCard.body,
+            column = model.column.id
+          ) :: model.cards,
+          newCard = ( head = "", body = "" )
+        )
+        case _ -> model
+      }
+    },
+    fun (context) (model) {
+      xmlUselet(<h4 class="board-col-head">{ stringToXml(model.column.name) }</h4>) <+>
+      ("boardcolbody" +> fold_left(fun (a, b) { a <+> b }, xmlUselet(<#/>), map(fun (card) { cardUselet(card) }, model.cards))) <+>
+      xmlUselet(<button l:onclick="{ context.dispatcher <<! (OpenModal, context.self) }"> New Card </button>) <+>
+      modalUselet("New Card", xmlUselet(
+        <form>
+          <input
+            type="text"
+            value="{ model.newCard.head }"
+            l:onkeyup="{ context.dispatcher <@ (UpdateNewHead(domGetPropertyFromRef(getTarget(event), "value")), context.self) }"
+          />
+          <input
+            type="text"
+            value="{ model.newCard.body }"
+            l:onkeyup="{ context.dispatcher <@ (UpdateNewBody(domGetPropertyFromRef(getTarget(event), "value")), context.self) }"
+          />
+          <button l:onclick="{ context.dispatcher <@ (CreateNewCard, context.self) }">Create</button>
+        </form>
+      ))
+    }
+  )
+}
+
+fun kanbanCardUselet (card) {
+
+  uselet(
+    "kanbancard",
+    ( edit = false, card = card ),
+    fun (_) (model, msg) {
+      switch (msg) {
+        case UpdateHead(value) -> ( model with card = ( model.card with head = value ) )
+        case UpdateBody(value) -> ( model with card = ( model.card with body = value ) )
+        case ToggleEdit -> {
+          if (model.edit) {
+            updateCard(model.card)
+          } else { () };
+          ( model with edit = not(model.edit) )
+        }
+        case _ -> model
+      }
+    },
+    fun (context) (model) {
+      if (model.edit) {
+        xmlUselet(
+          <div class="kanban-card">
+            <input
+              type="text"
+              name="head"
+              value="{ model.card.head }"
+              l:onkeyup="{ context.dispatcher <@ (UpdateHead(domGetPropertyFromRef(getTarget(event), "value")), context.self) }"
+            />
+            <input
+              type="text"
+              name="head"
+              value="{ model.card.body }"
+              l:onkeyup="{ context.dispatcher <@ (UpdateBody(domGetPropertyFromRef(getTarget(event), "value")), context.self) }"
+            />
+            <button l:onclick="{ context.dispatcher <@ (ToggleEdit, context.self) }">Finish</button>
+          </div>
+        )
+      } else {
+        xmlUselet(
+          <div class="kanban-card">
+            { if (strlen(model.card.head) > 0) {
+              <h4 class="card-head">
+                { stringToXml(model.card.head) }
+              </h4>
+            } else
+              <#/>
+            }
+            { if (strlen(model.card.body) > 0) {
+              <span class="card-body">
+                { stringToXml(model.card.body) }
+              </span>
+            } else
+              <#/>
+            }
+            <button l:onclick="{ context.dispatcher <@ (ToggleEdit, context.self) }">Edit</button>
+          </div>
+        )
+      }
+    }
+  )
+}
+
+
+
+fun modalUselet (title, content) {
+  uselet(
+    "modal",
+    ( isOpen = false ),
+    fun (context) (model, msg) {
+      switch (msg) {
+        case OpenModal -> ( model with isOpen = true )
+        case CloseModal -> ( model with isOpen = false )
+        case _ -> model
+      }
+    },
+    fun (context) (model) {
+      if (model.isOpen) {
+        "modal" +> (
+          xmlUselet(<button l:onclick="{ context.dispatcher <@ (CloseModal, context.self) }">Close</button>) <+>
+          content
+        ) <+>
+        xmlUselet(<div class="modal-background" />)
+      } else {
+        xmlUselet(<#/>)
+      }
+    }
+  )
+}

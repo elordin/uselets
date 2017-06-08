@@ -1,0 +1,33 @@
+open Uselet
+open Services
+open Uselets
+
+fun myApp () {
+
+  var (app, _) = useletApp("myapp", kanbanUselet(kanbanOverviewUselet, kanbanBoardUselet(kanbanColumnUselet(kanbanCardUselet))), services);
+
+  page
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>My App</title>
+        <link rel="stylesheet" href="/css/style.css" />
+      </head>
+      <body>
+        { app }
+      </body>
+    </html>
+}
+
+sig main : () ~> ()
+fun main () {
+  addStaticRoute("/css", "../css", [
+    ("css", "text/css")
+  ]);
+
+  addRoute("/u", fun (_, _) { myApp() });
+
+  servePages()
+}
+
+main()

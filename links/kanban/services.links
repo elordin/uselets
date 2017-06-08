@@ -1,0 +1,32 @@
+open Uselet
+
+fun apiFun (disp) {
+  receive {
+    case _ -> apiFun(disp)
+  }
+}
+
+fun spawnApiService (disp) {
+  spawnClient { apiFun(disp) }
+}
+
+
+fun navFun (disp) {
+  receive {
+    case Navigate(target) -> {
+      disp <! Navigate(target);
+      navFun(disp)
+    }
+  }
+}
+
+fun spawnNavigationService (disp) {
+  spawnClient { navFun(disp) }
+}
+
+fun services(disp) {
+  (
+    api = spawnApiService(disp),
+    nav = spawnNavigationService(disp)
+  )
+}
