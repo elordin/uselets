@@ -110,21 +110,7 @@ fun kanbanColumnUselet (cardUselet) (columnId) {
       xmlUselet(<h4 class="board-col-head">{ stringToXml(model.column.name) }</h4>) <+>
       ("boardcolbody" +> fold_left(fun (a, b) { a <+> b }, xmlUselet(<#/>), map(fun (card) { cardUselet(card) }, model.cards))) <+>
       xmlUselet(<button l:onclick="{ context.dispatcher <<! (OpenModal, context.self) }"> New Card </button>) <+>
-      modalUselet("New Card", xmlUselet(
-        <form>
-          <input
-            type="text"
-            value="{ model.newCard.head }"
-            l:onkeyup="{ context.dispatcher <@ (UpdateNewHead(domGetPropertyFromRef(getTarget(event), "value")), context.self) }"
-          />
-          <input
-            type="text"
-            value="{ model.newCard.body }"
-            l:onkeyup="{ context.dispatcher <@ (UpdateNewBody(domGetPropertyFromRef(getTarget(event), "value")), context.self) }"
-          />
-          <button l:onclick="{ context.dispatcher <@ (CreateNewCard, context.self) }">Create</button>
-        </form>
-      ))
+      modalUselet("", createNewCardUselet(model.column.id))
     }
   )
 }
@@ -214,6 +200,33 @@ fun modalUselet (title, content) {
       } else {
         xmlUselet(<#/>)
       }
+    }
+  )
+}
+
+fun createNewCardUselet (colId) {
+  uselet(
+    "createnewcard",
+    ( head = "", body = "" ),
+    fun (ctx) (model, msg) {
+      switch (msg) {
+
+      }
+    },
+    fun (ctx) (model) {
+      xmlUselet(<#>
+        <input
+          type="text"
+          value="{ model.head }"
+          l:onkeyup="{ ctx.dispatcher <@ (UpdateNewHead(domGetPropertyFromRef(getTarget(event), "value")), ctx.self) }"
+        />
+        <input
+          type="text"
+          value="{ model.body }"
+          l:onkeyup="{ ctx.dispatcher <@ (UpdateNewBody(domGetPropertyFromRef(getTarget(event), "value")), ctx.self) }"
+        />
+        <button l:onclick="{ ctx.dispatcher <@ (CreateNewCard, ctx.self) }">Create</button>
+      </#>)
     }
   )
 }

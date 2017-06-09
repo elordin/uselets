@@ -1,8 +1,14 @@
 typename Ord = [| LT | GT | EQ |];
+typename CompareFn(a) = (a, a) {}~> Ord;
 typename BinaryTree(key, value) = [| Node: (key, Maybe(value), BinaryTree(key, value), BinaryTree(key, value)) | Leaf |];
 
 var emptyTree = Leaf;
 
+# Insert a key-value-pair into the tree
+# @param key
+# @param value
+# @param compare Comparison function for two keys
+# @param
 fun treeInsert (key, value, compare, tree) {
   switch (tree) {
     case Leaf -> Node(key, Just(value), Leaf, Leaf)

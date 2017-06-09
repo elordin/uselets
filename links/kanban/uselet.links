@@ -151,7 +151,8 @@ fun uselet (name, model, updt, view) {
     var context = (
       services = services,
       self = addr,
-      dispatcher = dispatcher
+      dispatcher = dispatcher,
+      parent = tl(addr)
     );
 
     fun hndlr (oldState) {
