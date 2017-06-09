@@ -1,0 +1,122 @@
+\documentclass{beamer}
+
+\usepackage[utf8]{inputenc}
+\usepackage{listings}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{bm}
+
+\lstdefinelanguage{links}
+    {morekeywords={ uselet, fun },
+    sensitive=true,
+    morecomment=[l]{\#},
+}
+
+
+\definecolor{ediblue}{cmyk}{0.86, 0.51, 0, 0.75}
+\definecolor{edired}{cmyk}{0, 0.87, 0.76, 0.13}
+
+\usetheme{Szeged}
+\usecolortheme{beaver}
+
+\setbeamercolor*{palette primary}{fg=ediblue,bg=white}
+\setbeamercolor*{palette secondary}{fg=white,bg=ediblue}
+\setbeamercolor*{palette tertiary}{bg=edired,fg=white}
+\setbeamercolor*{palette quarternay}{bg=edired,fg=white}
+\setbeamercolor*{item}{fg=edired}
+
+\setbeamercolor*{sidebar}{fg=edired,bg=green}
+
+\setbeamercolor*{palette sidebar primary}{fg=gray}
+\setbeamercolor*{palette sidebar secondary}{fg=gray}
+\setbeamercolor*{palette sidebar tertiary}{fg=white}
+\setbeamercolor*{palette sidebar quaternary}{fg=gray}
+
+\setbeamercolor{titlelike}{parent=palette primary,fg=edired}
+\setbeamercolor{frametitle}{bg=gray!10!white}
+\setbeamercolor{frametitle right}{bg=gray}
+
+
+\title{Uselets}
+\subtitle{Composable, Communicating Components}
+
+\author{Thomas Weber}
+
+\begin{document}
+  \frame{\titlepage}
+  \section{Uselets}
+  \begin{frame}
+    \frametitle{Uselets}
+	\vspace{14px}
+    $Uselet = (gen, services, dispatcher) \rightarrow (xml, gen')$
+    \begin{itemize}
+      \item $gen$, $gen'$: Name generator
+      \item $services$: External services (for e.g. API access)
+      \item $dispatcher$: Primary channel of communication
+      \item $xml$: Initial representation 
+    \end{itemize}
+  \end{frame}
+  \begin{frame}
+    \frametitle{Uselets}
+	\vspace{14px}
+    $Uselet = (gen, services, dispatcher) \rightarrow (xml, gen')$
+    \begin{itemize}
+      \item Each Uselet is an addressed actor
+      \item All communication goes via the dispatcher
+      \item Message can result in a change of internal state
+      \item Internal state-change results in a re-render
+    \end{itemize}
+  \end{frame}
+  \begin{frame}
+    \frametitle{Uselets}
+
+    $xmlUselet = \lambda\ xml.\ \lambda\ gen, \_, \_.\ (xml, gen)$
+    $textUselet = \lambda\ str.\ \lambda\ gen, \_, \_.\ (stringToXml(str), gen)$
+
+    \begin{align*}
+    uselet&:: (\\
+    &name,\\
+    &model,\\
+    &(Context) \rightarrow (model, msg) \rightarrow model,\\
+    &(Context) \rightarrow (model) \rightarrow Xml\\
+    ) \rightarrow&Uselet
+    \end{align*}
+  \end{frame}
+  \begin{frame}
+    \frametitle{Example}
+
+      \lstinputlisting[language=links, numbers=left, numberstyle=\tiny]{todoExample.links}
+
+  \end{frame}
+  \begin{frame}
+    \frametitle{Example}
+
+    $call\ uselet \rightarrow instantiate \rightarrow initial\ render \rightarrow$
+
+$ \{ incoming\ message \rightarrow call\ update \rightarrow update\ model \rightarrow call\ view \rightarrow re\!-\!render\}^*$
+  \end{frame}
+  \begin{frame}
+    \frametitle{Example}
+      \lstinputlisting[language=links, numbers=left, numberstyle=\tiny]{todoExampleUpdateOnly.links}
+  \end{frame}
+  \begin{frame}
+    \frametitle{Example}
+      \lstinputlisting[language=links, numbers=left, numberstyle=\tiny]{todoExampleRenderOnly.links}
+  \end{frame}
+  \begin{frame}
+    \frametitle{Composition}
+      %
+      \begin{align*}
+u \otimes v =\ &\lambda\ gen,\:services,\:dispatcher. \\
+  \bm{let}\ &(xml',\ gen') = u\ (gen, services, disp)\ \bm{in} \\
+  \bm{let}\ &(xml'',\ gen'') = v\ (gen', services, disp)\ \bm{in} \\
+      &(xml' \leftarrow\!\!\!\!\!\!\!+\!\!\!\!\!\!\!\rightarrow xml'',\ gen'')
+      \end{align*}
+      \begin{align*}
+xmlItem \triangleright u = \ &\lambda\ gen,\:services,\:dispatcher. \\
+  \bm{let}\ &(name, attrs, \_) = xmlItem\ \bm{in}\\
+  \bm{let}\ &(xml,\ gen') = u\ (gen, services, disp)\ \bm{in}\\
+     &(makeXmlElem(name,\:attrs,\:xml), gen')
+      \end{align*}
+  \end{frame}
+\end{document}
