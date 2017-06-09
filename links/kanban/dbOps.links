@@ -1,27 +1,42 @@
+open Models
 open Tables
 
+# Board CRUD operations
+
+# R
+sig getAllBoards : () ~> [Board]
 fun getAllBoards () server {
   for (b <-- boardsTable)
     [ b ]
 }
 
+# R
+sig getBoardById : (Int) ~> Board
 fun getBoardById (boardId) server {
   var results = for (b <-- boardsTable)
     where (b.id == boardId)
     [ b ];
   if (length(results) == 0) {
-    error("")
+    error("Board not found")
   } else {
     hd(results)
   }
 }
 
+# Column CRUD operations
+
+# R
+# @param {Int} boardId ID of parent board
+sig getColumnsByBoard : (Int) ~> [BoardColumn]
 fun getColumnsByBoard (boardId) server {
   for (c <-- columnsTable)
     where (c.board == boardId)
     [ c ]
 }
 
+# R
+# @param {Int} colId Column ID
+sig getColumnById : (Int) ~> BoardColumn
 fun getColumnById (colId) server {
   var results = for (c <-- columnsTable)
     where (c.id == colId)
@@ -33,14 +48,39 @@ fun getColumnById (colId) server {
   }
 }
 
+# Card CRUD operations
+
+# C
+# @param {String} head
+# @param {String} body
+# @param {Int} colId ID of parent column
+sig createCard : (String, String, Int) ~> ()
+fun createCard (head, body, colId) server {
+  insert cardsTable values (head, body, column) [ ( head = head, body = body, column = colId ) ]
+}
+
+# R
+# @param {Int} colId Column ID
+sig getCardsByColumn : (Int) ~> [Card]
 fun getCardsByColumn (colId) server {
   for (c <-- cardsTable)
     where (c.column == colId)
     [ c ]
 }
 
+# U
+# @param {Card} cards
+sig updateCard : (Card) ~> ()
 fun updateCard (card) server {
   update (c <-- cardsTable)
     where (c.id == card.id)
     set (body = card.body, head = card.head)
+}
+
+# D
+# @param {Int} cardId ID of card to delete
+sig deleteCard : (Int) ~> ()
+fun deleteCard (cardId) server {
+  delete (c <-- cardsTable)
+    where (c.id == cardId)
 }
