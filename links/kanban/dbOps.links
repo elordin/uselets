@@ -25,6 +25,14 @@ fun getBoardById (boardId) server {
 
 # Column CRUD operations
 
+# C
+# @param {String} name
+# @param {Int} boardId ID of parent board
+sig createCol : (String, Int) ~> ()
+fun createCol (name, boardId) server {
+  insert columnsTable values (name, index, board) [ ( name = name, index = -1, board = boardId ) ]
+}
+
 # R
 # @param {Int} boardId ID of parent board
 sig getColumnsByBoard : (Int) ~> [BoardColumn]

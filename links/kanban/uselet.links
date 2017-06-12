@@ -70,7 +70,6 @@ fun dispatchFun (clients) client {
     }
     case SendToChildren(msg, parent) -> {
       treeForEachKeyValue(fun (addr, send) {
-        print(show(addr) ^^ " < " ^^ show(parent) ^^ " = " ^^ show(isChildAddr(addr, parent)));
         if (isChildAddr(addr, parent)) {
           send(msg)
         } else { () }
@@ -195,6 +194,29 @@ fun useletApp (name, child, servicesFn) {
 
   var (xml, gen) = child(initialSource, services, dispatcher);
   (makeTag(name, [("id", "")], xml), gen) # TODO
+}
+
+fun routedUseletApp (name, servicesFn, router, initialPath, renderFun) {
+  var dispatcher = spawnDispatcher();
+  var services = servicesFn(dispatcher);
+  uselet(
+    name,
+    router(initialPath),
+    fun (ctx) (model, msg) {
+      switch (msg) {
+        case NavigateTo(route) -> {
+          # TODO use history API to set route
+          var routeTarget = router(route);
+          switch (routeTarget) {
+            case NavError404 -> Error404(route)
+            case state -> state
+          }
+        }
+        case _ -> Error500("App received unknown message: " ^^ show(msg))
+      }
+    },
+    renderFun
+  )(initialSource, services, dispatcher)
 }
 
 op u1 <+> u2 {

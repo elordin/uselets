@@ -2,9 +2,8 @@ open Uselet
 open Services
 open Uselets
 
-fun myApp () {
-
-  var (app, _) = useletApp("myapp", kanbanUselet(kanbanOverviewUselet, kanbanBoardUselet(kanbanColumnUselet(kanbanCardUselet))), services);
+fun myApp (path) {
+  var (app, _) = routedUseletApp("myapp", services, kanbanRouter, path, kanbanRenderFun);
 
   page
     <html>
@@ -25,7 +24,7 @@ fun main () {
     ("css", "text/css")
   ]);
 
-  addRoute("/u", fun (_, _) { myApp() });
+  addRoute("/board", fun (path, location) { myApp(path) });
 
   servePages()
 }
