@@ -1,0 +1,18 @@
+# Splits a given string at a given delimiter returning a list of its parts
+# @param {Char} delimiter
+# @param {String} str
+# @returns {[ String ]}
+sig splitAt : (Char, String) ~> [ String ]
+fun splitAt (delimiter, str) {
+  map(implode, filter(fun (xs) { xs <> [ ] }, fold_right(
+    fun (chr, res) {
+      if (chr == delimiter) {
+        [ ] :: res
+      } else {
+        switch (res) {
+          case [ ] -> [ [ chr ] ]
+          case (h::t) -> (chr :: h) :: t
+        }
+      }
+    }, [ ], explode(str))))
+}

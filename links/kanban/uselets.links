@@ -2,27 +2,18 @@ open Uselet
 open DbOps
 open Util
 
-fun kanbanRouter (route) {
-  var splitRoute = splitAt('/', route);
-  switch (splitRoute) {
-    case [ "board" ] -> KanbanOverview
-    case [ "board", id ] -> {
-      if (isInt(id)) {
-        KanbanBoard(stringToInt(id))
-      } else {
-        NavError404
-      }
-    }
-    case _ -> NavError404
-  }
-}
-
-fun kanbanRenderFun (ctx) (state) {
+fun kanbanRouter (ctx) (route) {
   xmlUselet(<header><h1 l:onclick="{ ctx.dispatcher <! (NavigateTo("board")) }">Kanban</h1></header>) <+>
   ("main" +>
-    (switch (state) {
-      case KanbanOverview -> kanbanOverviewUselet()
-      case KanbanBoard(id) -> kanbanBoardUselet(kanbanColumnUselet(kanbanCardUselet))(id)
+    (switch (route) {
+      case [ "board" ] -> kanbanOverviewUselet()
+      case [ "board", id ] -> {
+        if (isInt(id)) {
+          kanbanBoardUselet(kanbanColumnUselet(kanbanCardUselet))(stringToInt(id))
+        } else {
+          xmlUselet(<h1>Nope</h1>)
+        }
+      }
       case _ -> xmlUselet(<h1>Nope</h1>)
     })
   )
@@ -88,7 +79,7 @@ fun kanbanBoardUselet (columnUselet) (boardId) {
         fold_left(fun (a, b) { a <+> b }, xmlUselet(<#/>), map(fun (col) { columnUselet(col.id) }, model.columns)) <+>
         xmlUselet(<button l:onclick="{ ctx.dispatcher <<! (OpenModal, ctx.self) }">New Column</button>)
       )) <+>
-      modalUselet("New Card", createNewColUselet(model.board.id))
+      modalUselet("New Column", createNewColUselet(model.board.id))
     }
   )
 }
