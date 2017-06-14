@@ -1,13 +1,76 @@
 open Uselet
+open DbOps
 
-fun apiFun (disp) {
+fun apiFun (disp, cache) {
   receive {
-    case _ -> apiFun(disp)
+    case GetBoards ->
+      var boards = getAllBoards();
+      disp <! GetBoardsResult(boards);
+      apiFun(disp, ( cache with boards = map(fun (b) { (b.id, b) }, boards) ++ cache.boards ))
+
+    case GetBoard(boardId) -> {
+      switch (lookup(boardId, cache.boards)) {
+        case Nothing ->
+          var board = getBoardById(boardId);
+          disp <! GetBoardResult(boardId, board);
+          apiFun(disp, ( cache with boards = (boardId, board) :: cache.boards ))
+        case Just(board) -> {
+          disp <! GetBoardResult(boardId, board);
+          apiFun(disp, cache)
+        }
+      }
+    }
+
+    case GetColumns(boardId) -> {
+      switch (filter(fun (c) { c.board == boardId }, cache.columns)) {
+        case [ ] ->
+          var columns = reverse(getColumnsByBoard(boardId));
+          disp <! GetColumnsResult(boardId, columns);
+          apiFun(disp, ( cache with columns = columns ++ cache.columns ))
+        case columns -> {
+          disp <! GetColumnsResult(boardId, columns);
+          apiFun(disp, cache)
+        }
+      }
+    }
+
+    case GetColumnById(columnId) -> {
+      switch (filter(fun (c) { c.id == columnId }, cache.columns)) {
+        case [ ] ->
+          var column = getColumnById(columnId);
+          disp <! GetColumnByIdResult(columnId, column);
+          apiFun(disp, ( cache with columns = column :: cache.columns ))
+        case [ column ] ->
+          disp <! GetColumnByIdResult(columnId, column);
+          apiFun(disp, cache)
+        case column :: other ->
+          debug("Duplicate column found: " ^^ show(column :: other));
+          disp <! GetColumnByIdResult(columnId, column);
+          apiFun(disp, cache)
+
+      }
+    }
+
+    case GetCards(columnId) ->
+      switch (lookup(columnId, cache.cardsByColumn)) {
+        case Nothing ->
+          var cards = getCardsByColumn(columnId);
+          disp <! GetCardsResult(columnId, cards);
+          apiFun(disp, ( cache with cardsByColumn = (columnId, cards) :: cache.cardsByColumn ))
+        case Just(cards) ->
+          disp <! GetCardsResult(columnId, cards);
+          apiFun(disp, cache)
+      }
+
+    case PostCard(head, body, index, colId) ->
+      createCard(head, body, -1, colId);
+      disp <! NewCardCreated(( head = head, body = body, index = -1, column = colId, id = -1));
+      apiFun(disp, cache)
   }
 }
 
 fun spawnApiService (disp) {
-  spawnClient { apiFun(disp) }
+  spawnClient { apiFun(disp, ( boards = [ ], columns = [ ], cardsByColumn = [ ] )) }
 }
 
 

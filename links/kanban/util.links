@@ -16,3 +16,8 @@ fun splitAt (delimiter, str) {
       }
     }, [ ], explode(str))))
 }
+
+fun foreachi (f, xs) {
+  var _ = mapi(f, xs);
+  ()
+}

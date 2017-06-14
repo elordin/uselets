@@ -9,7 +9,7 @@ fun kanbanRouter (ctx) (route) {
       case [ "board" ] -> kanbanOverviewUselet()
       case [ "board", id ] -> {
         if (isInt(id)) {
-          kanbanBoardUselet(kanbanColumnUselet(kanbanCardUselet))(stringToInt(id))
+          kanbanBoardUselet(kanbanColumnUselet)(stringToInt(id))
         } else {
           xmlUselet(<h1>Nope</h1>)
         }
@@ -20,21 +20,16 @@ fun kanbanRouter (ctx) (route) {
 }
 
 fun kanbanOverviewUselet () {
-  var boards = getAllBoards();
 
   uselet(
     "kanbanoverview",
-    boards,
-    fun (context) (model, msg) {
+    [ ],
+    fun (ctx) (model, msg) {
       switch (msg) {
-        case ShowOverview -> {
-          context.services.nav ! Navigate(OverviewPage);
+        case OnInit ->
+          ctx.services.api ! GetBoards;
           model
-        }
-        case ShowBoard(id) -> {
-          context.services.nav ! Navigate(BoardPage(id));
-          model
-        }
+        case GetBoardsResult(boards) -> boards
         case _ -> model
       }
     },
@@ -46,8 +41,7 @@ fun kanbanOverviewUselet () {
           xmlUselet(<#/>),
           map(
             fun (board) {
-              "li" +>
-                xmlUselet(<span l:onclick="{ context.dispatcher <! (NavigateTo("board/" ^^ intToString(board.id))) }">{ stringToXml(board.name) }</span>)
+              xmlUselet(<li l:onclick="{ context.dispatcher <! (NavigateTo("board/" ^^ intToString(board.id))) }">{ stringToXml(board.name) }</li>)
             },
             model
           )
@@ -58,62 +52,107 @@ fun kanbanOverviewUselet () {
 }
 
 fun kanbanBoardUselet (columnUselet) (boardId) {
-  var columns = reverse(getColumnsByBoard(boardId));
-  var board = getBoardById(boardId);
 
   uselet(
     "kanbanboard",
-    ( board = board, columns = columns),
+    ( board = Nothing, columns = Nothing),
     fun (ctx) (model, msg) {
       switch (msg) {
-        case NewColCreated(col) -> {
+        case OnInit ->
+          ctx.services.api ! GetBoard(boardId);
+          ctx.services.api ! GetColumns(boardId);
+          model
+        case GetBoardResult(bid, board) ->
+          if (bid == boardId) {
+            ( model with board = Just(board) )
+          } else {
+            model
+          }
+        case GetColumnsResult(bid, columns) ->
+          if (bid == boardId) {
+            ( model with columns = Just(columns) )
+          } else {
+            model
+          }
+        case NewColCreated(col) ->
           ctx.dispatcher <<! (CloseModal, ctx.self);
-          ( model with columns = col :: model.columns )
-        }
+          switch (model.columns) {
+            case Nothing -> ( model with columns = Just([ col ]) )
+            case Just(cols) -> ( model with columns = Just(col :: cols) )
+          }
         case _ -> model
       }
     },
     fun (ctx) (model) {
-      xmlUselet(<h3>{ stringToXml(model.board.name) }</h3>) <+>
-      ("kanbancolumns" +> (
-        fold_left(fun (a, b) { a <+> b }, xmlUselet(<#/>), map(fun (col) { columnUselet(col.id) }, model.columns)) <+>
-        xmlUselet(<button l:onclick="{ ctx.dispatcher <<! (OpenModal, ctx.self) }">New Column</button>)
-      )) <+>
-      modalUselet("New Column", createNewColUselet(model.board.id))
+      switch ((model.board, model.columns)) {
+        case (Just(board), Just(cols)) ->
+          xmlUselet(<h3>{ stringToXml(board.name) }</h3>) <+>
+          ("kanbancolumns" +> (
+            fold_left(fun (a, b) { a <+> b }, xmlUselet(<#/>), map(fun (col) { columnUselet(col.id) }, cols)) <+>
+            xmlUselet(<button class="ghost-btn" l:onclick="{ ctx.dispatcher <<! (OpenModal, ctx.self) }">Add Column</button>)
+          )) <+>
+          modalUselet("New Column", createNewColUselet(board.id))
+
+        case _ -> xmlUselet(<div class="loader">Loading... </div>)
+      }
     }
   )
 }
 
-fun kanbanColumnUselet (cardUselet) (columnId) {
+fun kanbanColumnUselet (columnId) {
   var column = getColumnById(columnId);
   var cards = getCardsByColumn(columnId);
 
   uselet(
     "kanbancol",
-    ( cards = cards, column = column, currentDragSubject = Nothing ),
+    ( cards = cards, column = Just(column), currentDragSubject = Nothing ),
     fun (ctx) (model, msg) {
       switch (msg) {
-        case RemoveCard(id) -> {
+        case DragStart(cardId) -> ( model with currentDragSubject = Just(cardId) )
+        case DragEnd(cardId) -> ( model with currentDragSubject = Nothing )
+        case DragOver(cardId) ->
+          switch (model.currentDragSubject) {
+            case Nothing -> model
+            case Just(subjId) ->
+              var c1 = hd(filter(fun (c) { c.id == subjId }, model.cards));
+              var c2 = hd(filter(fun (c) { c.id == cardId }, model.cards));
+              var newCards = map(fun (c) { if (c == c1) { c2 } else if (c == c2) { c1 } else { c } }, model.cards);
+
+              foreachi(fun (c, i) { updateCard((c with index = i )) }, model.cards);
+
+              ( model with cards = newCards )
+          }
+        case RemoveCard(id) ->
           deleteCard(id);
-          ( model with cards = filter(fun (c) { c.id <> id }, cards) )
-        }
-        case NewCardCreated(card) -> {
-          ctx.dispatcher <<! (CloseModal, ctx.self);
-          ( model with cards = card :: model.cards )
-        }
+          ( model with cards = filter(fun (c) { c.id <> id }, model.cards) )
+        case NewCardCreated(card) ->
+          switch (model.column) {
+            case Nothing -> model
+            case Just(col) ->
+              if (card.column == col.id) {
+                ctx.dispatcher <<! (CloseModal, ctx.self);
+                ( model with cards = card :: model.cards )
+              } else {
+                model
+              }
+          }
         case _ -> model
       }
     },
     fun (context) (model) {
-      xmlUselet(<h4 class="board-col-head">{ stringToXml(model.column.name) }</h4>) <+>
-      ("boardcolbody" +> fold_left(fun (a, b) { a <+> b }, xmlUselet(<#/>), map(fun (card) { cardUselet(card) }, model.cards))) <+>
-      xmlUselet(<button l:onclick="{ context.dispatcher <<! (OpenModal, context.self) }"> New Card </button>) <+>
-      modalUselet("New Card", createNewCardUselet(model.column.id))
+      switch (model.column) {
+        case Nothing -> xmlUselet(<div class="loader" />)
+        case Just(col) ->
+          xmlUselet(<h4 class="board-col-head">{ stringToXml(col.name) }</h4>) <+>
+          ("boardcolbody" +> fold_left(fun (a, b) { a <+> b }, xmlUselet(<#/>), map(fun (card) { kanbanCardUselet(card, Just(card.id) == model.currentDragSubject) }, model.cards))) <+>
+          xmlUselet(<button class="ghost-btn" l:onclick="{ context.dispatcher <<! (OpenModal, context.self) }">Add Card </button>) <+>
+          modalUselet("New Card", createNewCardUselet(col.id))
+      }
     }
   )
 }
 
-fun kanbanCardUselet (card) {
+fun kanbanCardUselet (card, dragging) {
 
   uselet(
     "kanbancard",
@@ -122,57 +161,91 @@ fun kanbanCardUselet (card) {
       switch (msg) {
         case UpdateHead(value) -> ( model with card = ( model.card with head = value ) )
         case UpdateBody(value) -> ( model with card = ( model.card with body = value ) )
-        case ToggleEdit -> {
+        case ToggleEdit ->
           if (model.edit) {
             updateCard(model.card)
           } else { () };
           ( model with edit = not(model.edit) )
-        }
         case _ -> model
       }
     },
-    fun (context) (model) {
+    fun (ctx) (model) {
       if (model.edit) {
         xmlUselet(
-          <div class="kanban-card">
+          <div class="kanban-card edit">
             <input
               type="text"
               name="head"
               value="{ model.card.head }"
-              l:onkeyup="{ context.dispatcher <@ (UpdateHead(domGetPropertyFromRef(getTarget(event), "value")), context.self) }"
+              l:onkeyup="{ ctx.dispatcher <@ (UpdateHead(domGetPropertyFromRef(getTarget(event), "value")), ctx.self) }"
             />
             <input
               type="text"
               name="head"
               value="{ model.card.body }"
-              l:onkeyup="{ context.dispatcher <@ (UpdateBody(domGetPropertyFromRef(getTarget(event), "value")), context.self) }"
+              l:onkeyup="{ ctx.dispatcher <@ (UpdateBody(domGetPropertyFromRef(getTarget(event), "value")), ctx.self) }"
             />
-            <button l:onclick="{ context.dispatcher <@ (ToggleEdit, context.self) }">Finish</button>
+            <button l:onclick="{ ctx.dispatcher <@ (ToggleEdit, ctx.self) }">Finish</button>
           </div>
         )
       } else {
         xmlUselet(
-          <div class="kanban-card">
-            { if (strlen(model.card.head) > 0) {
-              <h4 class="card-head">
-                { stringToXml(model.card.head) }
-              </h4>
-            } else
-              <#/>
-            }
-            { if (strlen(model.card.body) > 0) {
-              <span class="card-body">
-                { stringToXml(model.card.body) }
-              </span>
-            } else
-              <#/>
-            }
-            <button l:onclick="{ context.dispatcher <@ (ToggleEdit, context.self) }">Edit</button>
-            <button l:onclick="{ context.dispatcher <@ (RemoveCard(model.card.id), context.parent) }">X</button>
+          <div
+            class="{ if (dragging) "kanban-card dragging" else "kanban-card" }"
+            l:onmouseup="{ ctx.dispatcher <@ (DragEnd(model.card.id), ctx.parent) }"
+            l:onmouseuppage="{ ctx.dispatcher <@ (DragEnd(model.card.id), ctx.parent) }"
+          >
+            <div>
+              <span class="drag-handle"
+                l:onmousedown="{ ctx.dispatcher <@ (DragStart(model.card.id), ctx.parent) }"
+                l:onmouseenter="{ ctx.dispatcher <@ (DragOver(model.card.id), ctx.parent) }"
+              />
+            </div>
+            <div class="kanban-card-content">
+              { if (strlen(model.card.head) > 0) {
+                <h4 class="card-head">
+                  { stringToXml(model.card.head) }
+                </h4>
+              } else
+                <#/>
+              }
+              { if (strlen(model.card.body) > 0) {
+                <span class="card-body">
+                  { stringToXml(model.card.body) }
+                </span>
+              } else
+                <#/>
+              }
+            </div>
+            <div>
+              <button class="edit" l:onclick="{ ctx.dispatcher <@ (ToggleEdit, ctx.self) }"><i class="fa fa-edit"></i></button>
+              <button class="delete" l:onclick="{ ctx.dispatcher <@ (RemoveCard(model.card.id), ctx.parent) }"><i class="fa fa-times"></i></button>
+            </div>
           </div>
         )
       }
     }
+  )
+}
+
+fun kanbanStaticCardUselet (card) {
+  xmlUselet(
+    <div class="kanban-card">
+      { if (strlen(card.head) > 0) {
+        <h4 class="card-head">
+          { stringToXml(card.head) }
+        </h4>
+      } else
+        <#/>
+      }
+      { if (strlen(card.body) > 0) {
+        <span class="card-body">
+          { stringToXml(card.body) }
+        </span>
+      } else
+        <#/>
+      }
+    </div>
   )
 }
 
@@ -216,12 +289,15 @@ fun createNewColUselet (boardId) {
           ( model with name = name, error = "Empty name not allowed" )
         }
         case CreateNewCol -> {
-          createCol(model.name, boardId);
-          ctx.dispatcher <@ (
-            NewColCreated(( id = -1, name = model.name, index = -1, board = boardId )),
-            ctx.parent
-          );
-          ( name = "", error = "" )
+          if (strlen(model.error) == 0) {
+            createCol(model.name, boardId);
+            ctx.dispatcher <! (
+              NewColCreated(( id = -1, name = model.name, index = -1, board = boardId ))
+            );
+            ( name = "", error = "" )
+          } else {
+            model
+          }
         }
         case _ -> model
       }
@@ -253,14 +329,11 @@ fun createNewCardUselet (colId) {
       switch (msg) {
         case UpdateHead(head) -> ( model with head = head )
         case UpdateBody(body) -> ( model with body = body )
-        case CreateNewCard -> {
-          createCard(model.head, model.body, colId);
-          ctx.dispatcher <@ (
-            NewCardCreated(( head = model.head, body = model.body, column = colId, id = -1)),
-            ctx.parent
-          );
+        case CreateNewCard ->
+          ctx.services.api ! PostCard(model.head, model.body, -1, colId);
+          # model
+        # case NewCardCreated(_) ->
           ( head = "", body = "" )
-        }
         case _ -> model
       }
     },

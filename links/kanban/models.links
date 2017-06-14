@@ -21,5 +21,6 @@ typename Card = (
   id: Int,
   head: String,
   body: String,
-  column: Int
+  column: Int,
+  index: Int
 );

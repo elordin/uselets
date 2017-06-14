@@ -60,7 +60,10 @@ typename DispatcherMessage(i, o) =
 # @returns {()}
 fun dispatchFun (clients) client {
   receive {
-    case Register(addr, send) -> { dispatchFun(treeInsert(addr, send, addrComp, clients)) }
+    case Register(addr, send) -> {
+      send(OnInit);
+      dispatchFun(treeInsert(addr, send, addrComp, clients))
+    }
     case Deregister(addr)  -> dispatchFun(treeRemove(addr, addrComp, clients))
     case Ignore -> dispatchFun(clients)
     case Send(msg, to) -> {
@@ -117,7 +120,17 @@ fun log (logPrefix)(msg) { print(logPrefix ^^ " " ^^ show(msg)); msg }
 
 # @returns {Process} Dispatcher process with logging
 fun spawnDispatcher () {
-  spawnClient { dispatchFun(emptyTree) } `using` log("[Dispatcher]")
+  spawnClient { dispatchFun(emptyTree) } # `using` log("[Dispatcher]")
+}
+
+
+fun historyFun (history) {
+  receive {
+    case msg ->
+      var now = msg :: history;
+      dump(now);
+      historyFun(now)
+  }
 }
 
 
@@ -206,11 +219,17 @@ fun textUselet (str) {
 # @param {Uselet} child Single root uselet of the app
 # @param {fun} servicesFn Function creating the record of external services
 fun useletApp (name, child, servicesFn) {
-  var dispatcher = spawnDispatcher();
+  var historian = spawnClient { historyFun([ ]) };
+  fun history (msg) { historian ! msg; msg }
+
+  var dispatcher = spawnDispatcher() `using` history;
 
   var services = servicesFn(dispatcher);
 
   var (xml, gen) = child(initialSource, services, dispatcher);
+
+  dispatcher <! OnStartup;
+
   (makeTag(name, [("id", "")], xml), gen) # TODO
 }
 

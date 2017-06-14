@@ -10,6 +10,7 @@ fun myApp (path) {
       <head>
         <meta charset="utf-8" />
         <title>My App</title>
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.2.0/css/font-awesome.min.css" />
         <link rel="stylesheet" href="/css/style.css" />
       </head>
       <body>
@@ -22,6 +23,9 @@ sig main : () ~> ()
 fun main () {
   addStaticRoute("/css", "../css", [
     ("css", "text/css")
+  ]);
+  addStaticRoute("/js", "../js", [
+    ("js", "application/javascript")
   ]);
 
   addRoute("/board/", fun (path, location) { myApp(path) });

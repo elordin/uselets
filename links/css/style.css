@@ -40,18 +40,18 @@ h4 {
   margin: 0;
 }
 
-[is="kanbanoverview"] [is="li"] {
+[is="kanbanoverview"] li {
   display: block;
   padding: .5rem;
   font-size: 1.25rem;
   cursor: pointer;
 }
 
-[is="kanbanoverview"] [is="li"]:nth-of-type(2n) {
+[is="kanbanoverview"] li:nth-of-type(2n) {
   background-color: #eee;
 }
 
-[is="kanbanoverview"] [is="li"]:hover {
+[is="kanbanoverview"] li:hover {
   background-color: #ddd;
 }
 
@@ -124,7 +124,8 @@ h4 {
 }
 
 .kanban-card {
-  display: block;
+  display: flex;
+  flex-direction: row;
   background-color: #fff;
   padding: .5rem;
   border-radius: 2px;
@@ -133,6 +134,63 @@ h4 {
     0 2px 2px rgba(0, 0, 0, .1),
     0 3px 4px rgba(0, 0, 0, .15);
   margin-bottom: .5rem;
+}
+
+.kanban-card.edit {
+  flex-direction: column;
+}
+
+.kanban-card div {
+  display: flex;
+  flex-direction: column;
+}
+
+.kanban-card-content {
+  flex: 1;
+}
+
+.kanban-card button {
+  padding: .25rem .5rem;
+  border: none;
+  color: #333;
+}
+
+.kanban-card button.delete {
+  background-color: #FF4343;
+  color: #fff;
+}
+
+.kanban-card button.edit {
+  background-color: #2196F3;
+  color: #fff;
+}
+
+.kanban-card.dragging {
+  transform: rotate(-2deg);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, .05),
+    0 6px 8px rgba(0, 0, 0, .1),
+    0 12px 16px rgba(0, 0, 0, .15);
+}
+
+.drag-handle {
+  display: block;
+  width: 1rem;
+  height: .5rem;
+  margin: .5rem 1rem .5rem .5rem;
+  border-top: .2rem solid #ddd;
+  border-bottom: .2rem solid #ddd;
+  position: relative;
+}
+
+.drag-handle::before {
+  content: '';
+  display: block;
+  position: absolute;
+  top: .15rem;
+  height: .2rem;
+  width: 1rem;
+  background-color: #ddd;
 }
 
 .card-head {
@@ -219,12 +277,13 @@ form button {
   display: block;
   padding: .5rem;
   font-size: 1.25rem;
-  border: thin solid #aaa;
+  border: .25rem solid #ddd;
   text-align: center;
-  margin: .5rem 1rem;
+  margin: 0;
   color: #aaa;
   font-weight: bold;
   box-sizing: border-box;
+  background-color: transparent;
 }
 
 .error, .warn {
@@ -327,4 +386,64 @@ form button {
   font-size: 1.5rem;
   font-family: monospace;
   z-index: 4;
+}
+
+
+
+.loader,
+.loader:before,
+.loader:after {
+  border-radius: 50%;
+  width: 2.5em;
+  height: 2.5em;
+  -webkit-animation-fill-mode: both;
+  animation-fill-mode: both;
+  -webkit-animation: load7 1.8s infinite ease-in-out;
+  animation: load7 1.8s infinite ease-in-out;
+}
+.loader {
+  color: #2196F3;
+  font-size: 10px;
+  margin: 80px auto;
+  position: relative;
+  text-indent: -9999em;
+  -webkit-transform: translateZ(0);
+  -ms-transform: translateZ(0);
+  transform: translateZ(0);
+  -webkit-animation-delay: -0.16s;
+  animation-delay: -0.16s;
+}
+.loader:before,
+.loader:after {
+  content: '';
+  position: absolute;
+  top: 0;
+}
+.loader:before {
+  left: -3.5em;
+  -webkit-animation-delay: -0.32s;
+  animation-delay: -0.32s;
+}
+.loader:after {
+  left: 3.5em;
+}
+@-webkit-keyframes load7 {
+  0%,
+  80%,
+  100% {
+    box-shadow: 0 2.5em 0 -1.3em;
+  }
+  40% {
+    box-shadow: 0 2.5em 0 0;
+  }
+}
+@keyframes load7 {
+  0%,
+  80%,
+  100% {
+    box-shadow: 0 2.5em 0 -1.3em;
+  }
+  40% {
+    box-shadow: 0 2.5em 0 0;
+  }
 }

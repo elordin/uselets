@@ -62,18 +62,19 @@ fun getColumnById (colId) server {
 # @param {String} head
 # @param {String} body
 # @param {Int} colId ID of parent column
-sig createCard : (String, String, Int) ~> ()
-fun createCard (head, body, colId) server {
-  insert cardsTable values (head, body, column) [ ( head = head, body = body, column = colId ) ]
+sig createCard : (String, String, Int, Int) ~> ()
+fun createCard (head, body, index, colId) server {
+  insert cardsTable values (head, body, index, column) [ ( head = head, body = body, index = index, column = colId ) ]
 }
 
 # R
 # @param {Int} colId Column ID
 sig getCardsByColumn : (Int) ~> [Card]
 fun getCardsByColumn (colId) server {
-  for (c <-- cardsTable)
+  reverse(for (c <-- cardsTable)
     where (c.column == colId)
-    [ c ]
+    orderby (c.index)
+    [ c ])
 }
 
 # U
@@ -82,7 +83,7 @@ sig updateCard : (Card) ~> ()
 fun updateCard (card) server {
   update (c <-- cardsTable)
     where (c.id == card.id)
-    set (body = card.body, head = card.head)
+    set (body = card.body, head = card.head, index = card.index)
 }
 
 # D
