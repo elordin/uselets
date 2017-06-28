@@ -116,19 +116,18 @@ fun using (recp, plugin) {
   spawnClient { helper() }
 }
 
-fun log (logPrefix)(msg) { print(logPrefix ^^ " " ^^ show(msg)); msg }
+fun log (msg) { dump(msg); msg }
 
 # @returns {Process} Dispatcher process with logging
 fun spawnDispatcher () {
-  spawnClient { dispatchFun(emptyTree) } # `using` log("[Dispatcher]")
+  spawnClient { dispatchFun(emptyTree) } `using` log
 }
 
-
+# TODO
 fun historyFun (history) {
   receive {
     case msg ->
       var now = msg :: history;
-      dump(now);
       historyFun(now)
   }
 }
@@ -136,23 +135,66 @@ fun historyFun (history) {
 
 # Rendering
 
-fun makeTag (name, attributes, content) {
-  # makeXml(name, attributes, content)
-  # TODO
-  var id = fromJust(lookup("id", attributes));
-
-  <div is="{ name }" id="{ id }">
-    { content }
-  </div>
-}
+# fun makeTag (name, attributes, content) {
+#   makeXml(name, attributes, content)
+# }
 
 # Resolve diff of two DOM (sub-)trees
 # @param {DomNode} subject DOM Subtree to mutate into target state
 # @param {Xml} targetState Xml representation the subject is to be in
 # @returns {()}
 fun resolveDOMDiff (subject, targetState) client {
-  replaceNode(targetState, subject)
-  # replaceChildrenInShadow(subject, targetState);
+  # replaceNode(targetState, subject)
+  switch (targetState) {
+    case [ ] -> replaceNode(targetState, subject)
+    case [ item ] ->
+      if (isElementNode(subject)) {
+        var name = implode(map(toUpper, explode(getTagName([ item ]))));
+        if (name == domGetTagNameFromRef(subject)) {
+
+          # Get event-handler key
+          var key = domGetAttributeFromRef(subject, "key");
+
+          var children = getChildNodes([ item ]);
+
+          var attrs = {
+            var elemAttrs = getAttributes([ item ]);
+            if (key == "") {
+              elemAttrs
+            } else {
+              ("key", key) :: elemAttrs
+            }
+          };
+
+          foreach(fun ((k ,v)) {
+            var curr = domGetAttributeFromRef(subject, k);
+            if (curr == v) { () } else {
+              var _ = domSetAttributeFromRef(subject, k, v);
+              ()
+            }
+          }, attrs);
+
+
+          var domChildren = domGetChildrenFromRef(subject);
+
+          if (length(children) == length(domChildren)) {
+
+
+
+            foreach(fun ((subj, trgt)) { resolveDOMDiff(subj, [ trgt ]) }, zip(domChildren, children));
+          } else {
+            domReplaceChildren(children, subject);
+          }
+
+        } else {
+          replaceNode(targetState, subject)
+        }
+      } else {
+        replaceNode(targetState, subject)
+      }
+    case xmlItem :: items ->
+      replaceNode(targetState, subject)
+  }
 }
 
 # Uselet
@@ -184,9 +226,10 @@ fun uselet (name, model, updt, view) {
           var newState = updt(context)(oldState, msg);
           if (newState <> oldState) {
             var (xml, _) = view(context)(newState)(childGen, services, dispatcher);
-            var tag = makeTag(name, [("id", id)], xml);
+            var tag = makeXml(name, [ ("id", id) ], xml): XmlItem;
             var currentDOM = getNodeById(id);
-            resolveDOMDiff(currentDOM, tag);
+            patchDom(currentDOM, tag);
+            # resolveDOMDiff(currentDOM, [ tag ]);
           } else { () };
 
           hndlr(newState)
@@ -198,7 +241,7 @@ fun uselet (name, model, updt, view) {
     dispatcher ! Register(addr, fun (msg) { hndlr ! msg });
 
     var (xml, _) = view(context)(model)(childGen, services, dispatcher);
-    var tag = makeTag(name, [("id", id)], xml);
+    var tag = [ makeXml(name, [("id", id)], xml) ];
     (tag, gen)
   }
 }
@@ -230,7 +273,7 @@ fun useletApp (name, child, servicesFn) {
 
   dispatcher <! OnStartup;
 
-  (makeTag(name, [("id", "")], xml), gen) # TODO
+  ([ makeXml(name, [ ], xml) ], gen)
 }
 
 # Dynamic client-side routing container
@@ -239,17 +282,19 @@ fun useletApp (name, child, servicesFn) {
 # @returns {Uselet}
 fun routerOutlet (router, path) {
   uselet(
-    "routeroutlet",
+    "router-outlet",
     splitAt('/', path),
     fun (ctx) (mod, msg) {
       switch (msg) {
-        case NavigateTo(path) -> {
+
+        case NavigateTo(path) ->
+          # Somehow the pushState call stops execution when not in async
+          # async(fun () { history.pushState((), "", path) });
           splitAt('/', path)
-        }
-        case _ -> {
+
+        case _ ->
           debug("Received unknown message: " ^^ show(msg));
           mod
-        }
       }
     },
     fun (ctx) (route) {
@@ -271,10 +316,12 @@ op u1 <+> u2 {
 }
 
 # Wrap a Uselet in XML
-# @TODO Take XMLItem; take along attributes
 op xmlItem +> u {
   fun (addrSource, services, dispatcher) {
+    var name = getTagName([ xmlItem ]);
+    var attributes = getAttributes([ xmlItem ]);
     var (xml, gen) = u(addrSource, services, dispatcher);
-    (makeTag(xmlItem, [("id", "")], xml), gen) # TODO
+
+    ([ makeXml(name, attributes, xml) ], gen)
   }
 }

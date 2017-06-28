@@ -3,17 +3,18 @@ open DbOps
 open Util
 
 fun kanbanRouter (ctx) (route) {
-  xmlUselet(<header><h1 l:onclick="{ ctx.dispatcher <! (NavigateTo("board")) }">Kanban</h1></header>) <+>
-  ("main" +>
+  xmlUselet(<header><h1 l:onclick="{ ctx.dispatcher <! (NavigateTo("/board")) }">Kanban</h1></header>) <+>
+  (makeXml("main", [], <#/>) +>
     (switch (route) {
       case [ "board" ] -> kanbanOverviewUselet()
-      case [ "board", id ] -> {
+
+      case [ "board", id ] ->
         if (isInt(id)) {
           kanbanBoardUselet(kanbanColumnUselet)(stringToInt(id))
         } else {
           xmlUselet(<h1>Nope</h1>)
         }
-      }
+
       case _ -> xmlUselet(<h1>Nope</h1>)
     })
   )
@@ -22,7 +23,7 @@ fun kanbanRouter (ctx) (route) {
 fun kanbanOverviewUselet () {
 
   uselet(
-    "kanbanoverview",
+    "kanban-overview",
     [ ],
     fun (ctx) (model, msg) {
       switch (msg) {
@@ -35,13 +36,13 @@ fun kanbanOverviewUselet () {
     },
     fun (context) (model) {
       xmlUselet(<h2>Boards</h2>) <+> (
-      "ul" +>
+      makeXml("ul", [], <#/>) +>
         fold_left(
           fun (a, b) { a <+> b },
           xmlUselet(<#/>),
           map(
             fun (board) {
-              xmlUselet(<li l:onclick="{ context.dispatcher <! (NavigateTo("board/" ^^ intToString(board.id))) }">{ stringToXml(board.name) }</li>)
+              xmlUselet(<li l:onclick="{ context.dispatcher <! (NavigateTo("/board/" ^^ intToString(board.id))) }">{ stringToXml(board.name) }</li>)
             },
             model
           )
@@ -52,9 +53,8 @@ fun kanbanOverviewUselet () {
 }
 
 fun kanbanBoardUselet (columnUselet) (boardId) {
-
   uselet(
-    "kanbanboard",
+    "kanban-board",
     ( board = Nothing, columns = Nothing),
     fun (ctx) (model, msg) {
       switch (msg) {
@@ -87,7 +87,7 @@ fun kanbanBoardUselet (columnUselet) (boardId) {
       switch ((model.board, model.columns)) {
         case (Just(board), Just(cols)) ->
           xmlUselet(<h3>{ stringToXml(board.name) }</h3>) <+>
-          ("kanbancolumns" +> (
+          (makeXml("kanban-columns", [], <#/>) +> (
             fold_left(fun (a, b) { a <+> b }, xmlUselet(<#/>), map(fun (col) { columnUselet(col.id) }, cols)) <+>
             xmlUselet(<button class="ghost-btn" l:onclick="{ ctx.dispatcher <<! (OpenModal, ctx.self) }">Add Column</button>)
           )) <+>
@@ -104,7 +104,7 @@ fun kanbanColumnUselet (columnId) {
   var cards = getCardsByColumn(columnId);
 
   uselet(
-    "kanbancol",
+    "kanban-col",
     ( cards = cards, column = Just(column), currentDragSubject = Nothing ),
     fun (ctx) (model, msg) {
       switch (msg) {
@@ -144,7 +144,7 @@ fun kanbanColumnUselet (columnId) {
         case Nothing -> xmlUselet(<div class="loader" />)
         case Just(col) ->
           xmlUselet(<h4 class="board-col-head">{ stringToXml(col.name) }</h4>) <+>
-          ("boardcolbody" +> fold_left(fun (a, b) { a <+> b }, xmlUselet(<#/>), map(fun (card) { kanbanCardUselet(card, Just(card.id) == model.currentDragSubject) }, model.cards))) <+>
+          (makeXml("board-col-body", [], <#/>) +> fold_left(fun (a, b) { a <+> b }, xmlUselet(<#/>), map(fun (card) { kanbanCardUselet(card, Just(card.id) == model.currentDragSubject) }, model.cards))) <+>
           xmlUselet(<button class="ghost-btn" l:onclick="{ context.dispatcher <<! (OpenModal, context.self) }">Add Card </button>) <+>
           modalUselet("New Card", createNewCardUselet(col.id))
       }
@@ -153,9 +153,8 @@ fun kanbanColumnUselet (columnId) {
 }
 
 fun kanbanCardUselet (card, dragging) {
-
   uselet(
-    "kanbancard",
+    "kanban-card",
     ( edit = false, card = card ),
     fun (_) (model, msg) {
       switch (msg) {
@@ -265,9 +264,9 @@ fun modalUselet (title, content) {
     },
     fun (context) (model) {
       if (model.isOpen) {
-        "modalwrapper" +> (
+        makeXml("modal-wrapper", [], <#/>) +> (
           xmlUselet(<button class="modal-close-btn" l:onclick="{ context.dispatcher <@ (CloseModal, context.self) }"> X </button>) <+>
-          ("div" +> (xmlUselet(if (strlen(title) > 0) <h4>{ stringToXml(title) }</h4> else <#/>) <+> content))
+          (makeXml("div", [], <#/>) +> (xmlUselet(if (strlen(title) > 0) <h4>{ stringToXml(title) }</h4> else <#/>) <+> content))
         ) <+>
         xmlUselet(<div class="modal-background" />)
       } else {
@@ -279,7 +278,7 @@ fun modalUselet (title, content) {
 
 fun createNewColUselet (boardId) {
   uselet(
-    "createnewcol",
+    "create-new-col",
     ( name = "", error = "" ),
     fun (ctx) (model, msg) {
       switch (msg) {
@@ -323,7 +322,7 @@ fun createNewColUselet (boardId) {
 
 fun createNewCardUselet (colId) {
   uselet(
-    "createnewcard",
+    "create-new-card",
     ( head = "", body = "" ),
     fun (ctx) (model, msg) {
       switch (msg) {

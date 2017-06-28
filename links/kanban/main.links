@@ -2,8 +2,8 @@ open Uselet
 open Services
 open Uselets
 
-fun myApp (path) {
-  var (app, _) = useletApp("myapp", routerOutlet(kanbanRouter, path), services);
+fun myApp (path, _) {
+  var (app, _) = useletApp("my-app", routerOutlet(kanbanRouter, path), services);
 
   page
     <html>
@@ -28,7 +28,7 @@ fun main () {
     ("js", "application/javascript")
   ]);
 
-  addRoute("/board/", fun (path, location) { myApp(path) });
+  addRoute("/", myApp);
 
   servePages()
 }

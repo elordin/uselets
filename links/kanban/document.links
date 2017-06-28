@@ -1,0 +1,100 @@
+alien javascript document: (
+  # Values
+  characterSet: String,
+  compatMode: Bool,
+  contentType: String,
+  doctype: String,
+  documentElement: DomNode
+  documentURI: String,
+  hidden: Bool,
+  # implementation: ?,
+  inputEncoding: String,
+  lastStyleSheetSet: StyleSheetSet,
+  preferredStyleSheetSet: StyleSheetSet,
+  selectedStyleSheetSet: StyleSheetSet,
+  styleSheet: [ StyleSheet ],
+  # timeline: ?
+  visibilityState: String,
+
+  activeElement: DomNode,
+  anchors: [ Anchor ],
+  body: DomNode
+  cookie: String,
+  # defaultView: ?
+  # designMode: Bool
+  # dir: ?
+  # domain: ?
+  embeds: [ DomNode ],
+  forms: [ DomNode ],
+  head: DomNode,
+  images: [ DomNode ],
+  lastModified: Date,
+  links: [ DomNode ],
+  location: Location
+  # plugins: ?
+  # readyState: Int
+  referrer: String,
+  scripts: [ DomNode ],
+  title: String,
+  # URL: String
+
+  # Methods
+  adoptNode
+  createAttribute
+  createAttributeNS
+  createCDATASection
+  createComment
+  createDocumentFragment
+  createElement
+  createElementNS
+  createEvent
+  createNodeIterator
+  createProcessingInstruction
+  createRange
+  createTextNode
+  createTouch
+  createTouchList
+  createTreeWalker
+  enableStyleSheetsForSet
+  getElementsByClassName: (String) ~> NodeList),
+  getElementsByTagName: (String) ~> NodeList,
+  getElementsByTagNameNS: (String, String) ~> NodeList,
+  importNode: (DomNode, Bool) ~> DomNode,
+  getElementById: (String) ~> DomNode,
+  querySelector: (String) ~> DomNode,
+  querySelectorAll: (String) ~> NodeList,
+  createExpression
+  createNSResolver
+  evaluate
+  close: () ~> (),
+  execCommand
+  getElementsByName: (String) ~> NodeList,
+  getSelection: () ~> Selection,
+  hasFocus
+  open
+  queryCommandEnabled
+  queryCommandIndeterm
+  queryCommandState
+  queryCommandSupported
+  queryCommandValue
+  write: (String) ~> (),
+  writeln: (String) ~> ()
+)
+
+typename Location = (
+  # ancestorOrigins: DOMStringList
+  hash: String,
+  host: String,
+  hostname: String,
+  href: String,
+  origin: String,
+  pathname: String,
+  port: String,
+  protocol: String,
+  reload: () ~> (),
+  search: String,
+  toString: () ~> String
+  # valueOf: () ~> String
+)
+
+
