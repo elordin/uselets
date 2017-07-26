@@ -1,6 +1,8 @@
 open Uselet
 open DbOps
+open Models
 
+# sig apiFun : (%, (boards:[(Int, Board)],cardsByColumn:[(Int, [Card])],columns:[BoardColumn])) { |%}~> ()
 fun apiFun (disp, cache) {
   receive {
     case GetBoards ->
@@ -69,27 +71,13 @@ fun apiFun (disp, cache) {
   }
 }
 
+# sig spawnApiService : (%) ~> Process({ |%})
 fun spawnApiService (disp) {
   spawnClient { apiFun(disp, ( boards = [ ], columns = [ ], cardsByColumn = [ ] )) }
 }
 
-
-fun navFun (disp) {
-  receive {
-    case Navigate(target) -> {
-      disp <! Navigate(target);
-      navFun(disp)
-    }
-  }
-}
-
-fun spawnNavigationService (disp) {
-  spawnClient { navFun(disp) }
-}
-
 fun services(disp) {
   (
-    api = spawnApiService(disp),
-    nav = spawnNavigationService(disp)
+    api = spawnApiService(disp)
   )
 }

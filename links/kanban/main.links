@@ -2,7 +2,7 @@ open Uselet
 open Services
 open Uselets
 
-fun myApp (path, _) {
+fun myApp (path) {
   var (app, _) = useletApp("my-app", routerOutlet(kanbanRouter, path), services);
 
   page
@@ -12,6 +12,9 @@ fun myApp (path, _) {
         <title>My App</title>
         <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.2.0/css/font-awesome.min.css" />
         <link rel="stylesheet" href="/css/style.css" />
+        <script src="https://ajax.googleapis.com/ajax/libs/incrementaldom/0.5.1/incremental-dom-min.js"></script>
+        <script src="/js/patchdom.js"></script>
+        <script src="/js/customelements.js"></script>
       </head>
       <body>
         { app }
@@ -29,8 +32,11 @@ fun main () {
   ]);
 
   addRoute("/", myApp);
-
   servePages()
 }
 
 main()
+
+# kanbanOverviewUselet
+# services
+# spawnApiService

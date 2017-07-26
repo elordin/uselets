@@ -65,6 +65,13 @@ fun dispatchFun (clients) client {
       dispatchFun(treeInsert(addr, send, addrComp, clients))
     }
     case Deregister(addr)  -> dispatchFun(treeRemove(addr, addrComp, clients))
+    case DeregisterChildren(addr) ->
+      treeForEachKeyValue(fun (k, send) {
+        if (isChildAddr(k, addr)) {
+          send(OnDelete)
+        } else { () }
+      }, clients);
+      dispatchFun(treeFilter(fun (a) { not(isChildAddr(a, addr)) }, clients))
     case Ignore -> dispatchFun(clients)
     case Send(msg, to) -> {
       switch (treeLookup(to, addrComp, clients)) {
@@ -120,7 +127,7 @@ fun log (msg) { dump(msg); msg }
 
 # @returns {Process} Dispatcher process with logging
 fun spawnDispatcher () {
-  spawnClient { dispatchFun(emptyTree) } `using` log
+  spawnClient { dispatchFun(emptyTree) } # `using` log
 }
 
 # TODO
@@ -134,10 +141,6 @@ fun historyFun (history) {
 
 
 # Rendering
-
-# fun makeTag (name, attributes, content) {
-#   makeXml(name, attributes, content)
-# }
 
 # Resolve diff of two DOM (sub-)trees
 # @param {DomNode} subject DOM Subtree to mutate into target state
@@ -201,11 +204,22 @@ fun resolveDOMDiff (subject, targetState) client {
 
 var nodeAddrPrefix = "_render_node_";
 
+typename UseletType(dispatcher, services, model, msg, effects :: Row) = (AddressSource({ |effects}), services, dispatcher) { |effects}~> (Xml, AddressSource({ |effects}));
+typename Context(disp, serv) = (dispatcher: disp, parent: Address, self: Address, services:serv);
+typename UpdateFun(dispatcher, services, model, msg, effects :: Row) = (Context(dispatcher, services)) { |effects}~> (model, msg) { |effects}~> model;
+typename ViewFun  (dispatcher, services, model, msg, effects :: Row) = (Context(dispatcher, services)) { |effects}~> (model)      { |effects}~> UseletType(dispatcher, services, model, msg, { |effects});
+
 # Uselet-constructor
 # @param {String} name
 # @param {model} model
 # @param {(ctx) ~> (model, msg) ~> model} updt Update function
 # @param {(ctx) ~> (model) ~> Uselet} view Render function
+sig uselet : (
+  String,
+  model,
+  UpdateFun(%dispatcher, services, model, msg, { hear: msg | g }),
+  ViewFun  (%dispatcher, services, model, msg, { hear: msg | g })
+) -> UseletType(%dispatcher, services, model, msg, { hear: msg | g })
 fun uselet (name, model, updt, view) {
   fun (addressSource, services, dispatcher) {
 
@@ -226,8 +240,10 @@ fun uselet (name, model, updt, view) {
           var newState = updt(context)(oldState, msg);
           if (newState <> oldState) {
             var (xml, _) = view(context)(newState)(childGen, services, dispatcher);
-            var tag = makeXml(name, [ ("id", id) ], xml): XmlItem;
+            var tag = makeXml(name, [ ("id", id) ], xml);
             var currentDOM = getNodeById(id);
+            dump(id);
+            dump(currentDOM);
             patchDom(currentDOM, tag);
             # resolveDOMDiff(currentDOM, [ tag ]);
           } else { () };
@@ -237,9 +253,17 @@ fun uselet (name, model, updt, view) {
       }
     }
 
-    var hndlr = spawnClient { hndlr(model) };
-    dispatcher ! Register(addr, fun (msg) { hndlr ! msg });
 
+    var hndlr = spawnClient {
+      defineCustomElement(
+        name,
+        fun (_) { },
+        fun (_) { }
+      );
+      hndlr(model)
+    };
+
+    dispatcher ! Register(addr, fun (msg) { hndlr ! msg });
     var (xml, _) = view(context)(model)(childGen, services, dispatcher);
     var tag = [ makeXml(name, [("id", id)], xml) ];
     (tag, gen)
@@ -247,11 +271,13 @@ fun uselet (name, model, updt, view) {
 }
 
 # Uselet-wrapper for simple XML
+sig xmlUselet : (Xml) ~> UseletType(%, %, %, %, { |%})
 fun xmlUselet (xml) {
   fun (gen, _, _) { (xml, gen) }
 }
 
 # Uselet-wrapper for plain-text
+sig textUselet : (String) ~> UseletType(%, %, %, %, { |%})
 fun textUselet (str) {
   fun (gen, _, _) { (stringToXml(str), gen) }
 }
@@ -261,6 +287,7 @@ fun textUselet (str) {
 # @param {String} name Application name
 # @param {Uselet} child Single root uselet of the app
 # @param {fun} servicesFn Function creating the record of external services
+sig useletApp : (String, UseletType(%, %, %, %, { |%}), %) ~> (Xml, AddressSource({ |%}))
 fun useletApp (name, child, servicesFn) {
   var historian = spawnClient { historyFun([ ]) };
   fun history (msg) { historian ! msg; msg }
@@ -288,8 +315,7 @@ fun routerOutlet (router, path) {
       switch (msg) {
 
         case NavigateTo(path) ->
-          # Somehow the pushState call stops execution when not in async
-          # async(fun () { history.pushState((), "", path) });
+          historyPushState((), "", path);
           splitAt('/', path)
 
         case _ ->

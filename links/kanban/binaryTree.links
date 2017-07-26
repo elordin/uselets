@@ -72,6 +72,14 @@ fun treeForEachKeyValue (f, tree) {
   }
 }
 
+fun treeFilter (f, tree) {
+  switch (tree) {
+    case BTLeaf -> BTLeaf
+    case BTNode(k, Nothing, l, r) -> BTNode(k, Nothing, treeFilter(f, l), treeFilter(f, r))
+    case BTNode(k, Just(v), l, r) -> BTNode(k, if (f(k)) { Just(v) } else { Nothing }, treeFilter(f, l), treeFilter(f, r))
+  }
+}
+
 fun treeLookup (key, compare, tree) {
   switch (tree) {
     case BTLeaf -> Nothing

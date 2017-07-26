@@ -1,7 +1,9 @@
 open Uselet
 open DbOps
 open Util
+open Models
 
+# sig kanbanRouter : (Context(%dispatcher, %services)) -> (Route) ~> UseletType(%dispatcher, %services, _, _, { |%})
 fun kanbanRouter (ctx) (route) {
   xmlUselet(<header><h1 l:onclick="{ ctx.dispatcher <! (NavigateTo("/board")) }">Kanban</h1></header>) <+>
   (makeXml("main", [], <#/>) +>
@@ -20,6 +22,7 @@ fun kanbanRouter (ctx) (route) {
   )
 }
 
+# sig kanbanOverviewUselet : () -> UseletType (%, (api:Process ({ |%})|j), %, %, { |%})
 fun kanbanOverviewUselet () {
 
   uselet(
@@ -250,7 +253,7 @@ fun kanbanStaticCardUselet (card) {
 
 fun modalUselet (title, content) {
   uselet(
-    "modal",
+    "x-modal",
     ( isOpen = false ),
     fun (context) (model, msg) {
       switch (msg) {
