@@ -1,0 +1,65 @@
+type Message = {
+  label: string,
+  data: any,
+};
+
+// function register (name) {
+//   return (theClass) => {
+//     if (!(theClass instanceof Uselet)) {
+//       throw new Error('Cannot register non-Uselets.');
+//     }
+//     customElements.define(name, theClass);
+//   }
+// }
+
+class Uselet {
+
+  /**
+   * Creates an instance of Uselet.
+   * @param {string} name
+   * @param {Model} model
+   * @param {(mod: Model, msg: Message) => Model} update
+   * @param {(mod: Model) => Uselet[]} view
+   * @memberof Uselet
+   */
+  constructor (
+    name: string,
+    model: any,
+    update: (mod: any, msg: Message) => any,
+    view: (mod: any) => Uselet[],
+  ) {
+    const root = document.createElement(name);
+    const shadow = root.attachShadow({ mode: 'open' });
+    let children = view(model);
+
+    Object.defineProperty(this, 'xml', {
+      value: root,
+      writable: false,
+      enumerable: false,
+    });
+
+    this.receive = (msg: Message) => {
+      model = update(model, msg);
+      children = view(model);
+      shadow.innerHTML = '';
+      children.forEach(c => c.xml.forEach(x => shadow.appendChild(x)));
+    }
+  }
+}
+
+class XmlUselet implements Uselet {
+  constructor (public xml: Node[]) { }
+}
+
+class ListUselet extends DynamicUselet<any[]> {
+  constructor (
+    items: any[],
+  ) {
+    super(
+      'u-list',
+      items,
+      (mod, msg) => mod,
+      (items) => items.map(i => new XmlUselet([ document.createTextNode(i) ])),
+    );
+  }
+}

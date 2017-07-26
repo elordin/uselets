@@ -1,9 +1,24 @@
 {
-    "compilerOptions": {
-        "sourceMap": true,
-        "target": "ES5",
-        "experimentalDecorators": true,
-         "baseUrl": "./src",
-         "outDir": "build"
-    }
+  "compilerOptions": {
+    "outFile": "uselet.js",
+    "removeComments": true,
+    "charset": "utf8",
+    "newLine": "LF",
+    "watch": true,
+    "strict": true,
+    "pretty": false,
+    "target": "es5",
+    "experimentalDecorators": true,
+    "sourceMap": true,
+    "noEmitHelpers": false,
+    "strictNullChecks": true,
+    "noImplicitAny": true,
+    "baseUrl": ".",
+    "paths": {
+    },
+    "lib": [
+      "dom",
+      "es6"
+    ]
+  }
 }

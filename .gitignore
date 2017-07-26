@@ -1,1 +1,3 @@
 *.cache
+/doc
+/node_modules

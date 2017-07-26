@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Uselets</title>
+<link rel="stylesheet" href="style.css">
+<script src="uselet.js"></script>
+<script src="components.js"></script>
+<script>
+window.onload = (e) => {
+  (new UseletApp(
+    // new XmlUselet('<h1>404 Not Found</h1>')
+    new RouterOutlet([
+      {
+        path: /^(boards)?$/,
+        content: () => {
+          const list = new ListUselet(
+            [ ],
+            board => new XmlUselet(`<a href="/board/${board.id}" uref="/board/${board.id}">${board.name}</a>`)
+          );
+
+          const xhr = new XMLHttpRequest();
+          xhr.open('GET', '/');
+          xhr.onreadystatechange = () => {
+            list.receive({ type: 'REPLACE', data: [ { id: 0, name: 'B1' }, { id: 1, name: 'B2' } ] });
+          };
+          xhr.send();
+          return list;
+        },
+      },
+      {
+        path: /^board\/([0-9]+)$/,
+        content: ([ boardId ]) => new BoardUselet(boardId),
+      },
+      {
+        path: /.*/,
+        content: new XmlUselet('<h1>404 Not Found</h1>'),
+      }
+    ],
+    {
+      useHash: true,
+    })
+  ));
+}
+</script>
+<header>
+
+</header>
+<main id="main"></main>
