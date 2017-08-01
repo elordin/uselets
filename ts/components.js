@@ -21,12 +21,17 @@ class ListUselet extends Uselet {
       (items) => {
         const ul = document.createElement('ul');
         ul.classList.add('overview-ul');
-        return items.map(i => {
-          const li = document.createElement('li');
-          li.classList.add('overview-li');
-          itemView(i).xml.forEach(x => li.appendChild(x));
-          return new XmlUselet([ li ]);
-        }).reduce((a, b) => a.and(b), new TextUselet('')).in(ul)
+        return items.length ?
+          items
+            .map(i => {
+              const li = document.createElement('li');
+              li.classList.add('overview-li');
+              itemView(i).xml.forEach(x => li.appendChild(x));
+              return new XmlUselet([ li ]);
+            })
+            .reduce(IUselet.and)
+            .in(ul) :
+          new TextUselet('No items');
       },
     );
   }
@@ -46,53 +51,55 @@ class FormUselet extends Uselet {
             return model;
         }
       },
-      (data) => Object.keys(data).map(k => {
-        const val = data[k];
-        if (typeof val === 'string') {
-          const input = document.createElement('input');
-          input.setAttribute('type', 'text');
-          input.setAttribute('name', k);
-          input.value = val;
-          input.addEventListener('change', (e) =>
-            this.receive({ type: 'UPDATE', data: { who: k, val: e.target.value }})
-          );
-          return new XmlUselet([ input ]);
-        } else if (typeof val === 'number') {
-          const input = document.createElement('input');
-          input.setAttribute('type', 'number');
-          input.setAttribute('name', k);
-          input.value = val;
-          input.addEventListener('change', (e) =>
-            this.receive({ type: 'UPDATE', data: { who: k, val: parseFloat(e.target.value) }})
-          );
-          return new XmlUselet([ input ]);
-        } else if (typeof val === 'boolean') {
-          const input = document.createElement('input');
-          input.setAttribute('type', 'checkbox');
-          input.setAttribute('name', k);
-          if (val) {
-            input.setAttribute('checked', '');
-          } else if (input.hasAttribute('checked')) {
-            input.removeAttribute('checked');
+      (data) => Object.keys(data)
+        .map(k => {
+          const val = data[k];
+          if (typeof val === 'string') {
+            const input = document.createElement('input');
+            input.setAttribute('type', 'text');
+            input.setAttribute('name', k);
+            input.value = val;
+            input.addEventListener('change', (e) =>
+              this.receive({ type: 'UPDATE', data: { who: k, val: e.target.value }})
+            );
+            return new XmlUselet([ input ]);
+          } else if (typeof val === 'number') {
+            const input = document.createElement('input');
+            input.setAttribute('type', 'number');
+            input.setAttribute('name', k);
+            input.value = val;
+            input.addEventListener('change', (e) =>
+              this.receive({ type: 'UPDATE', data: { who: k, val: parseFloat(e.target.value) }})
+            );
+            return new XmlUselet([ input ]);
+          } else if (typeof val === 'boolean') {
+            const input = document.createElement('input');
+            input.setAttribute('type', 'checkbox');
+            input.setAttribute('name', k);
+            if (val) {
+              input.setAttribute('checked', '');
+            } else if (input.hasAttribute('checked')) {
+              input.removeAttribute('checked');
+            }
+            input.addEventListener('change', (e) =>
+              this.receive({ type: 'UPDATE', data: { who: k, val: e.target.checked }})
+            );
+            return new XmlUselet([ input ]);
+          } else if (typeof val === 'object') {
+            if (!val.hasOwnProperty('type') || !val.hasOwnProperty('value')) {
+              throw new Error('Form data object must have type and value field')
+            }
+            const input = document.createElement('input');
+            input.setAttribute('type', val.type);
+            input.setAttribute('name', k);
+            input.value = val.value;
+            // @TODO
+            return new XmlUselet([ input ]);
+          } else {
+            throw new Error('Unknow type');
           }
-          input.addEventListener('change', (e) =>
-            this.receive({ type: 'UPDATE', data: { who: k, val: e.target.checked }})
-          );
-          return new XmlUselet([ input ]);
-        } else if (typeof val === 'object') {
-          if (!val.hasOwnProperty('type') || !val.hasOwnProperty('value')) {
-            throw new Error('Form data object must have type and value field')
-          }
-          const input = document.createElement('input');
-          input.setAttribute('type', val.type);
-          input.setAttribute('name', k);
-          input.value = val.value;
-          // @TODO
-          return new XmlUselet([ input ]);
-        } else {
-          throw new Error('Unknow type');
-        }
-      }).reduce((a, b) => a.and(b), new TextUselet('')),
+        })
+        .reduce(IUselet.and),
     );
   }
 }
@@ -127,7 +134,10 @@ class InPlaceEditUselet extends Uselet {
         const toggleBtn = document.createElement('button');
         toggleBtn.innerText = 'Toggle edit';
         toggleBtn.setAttribute('type', 'button');
-        toggleBtn.addEventListener('click', (e) => this.receive({ type: 'TOGGLE_EDIT' }));
+        toggleBtn.addEventListener('click', (e) => {
+          this.receive({ type: 'TOGGLE_EDIT' });
+          broadcast('GET_SOME');
+        });
 
         if (model.edit) {
           return model.data
@@ -150,7 +160,7 @@ class InPlaceEditUselet extends Uselet {
         } else {
           return model.data
             .map(field => new XmlUselet(`<span class="${field.class}">${field.value || ''}</span>`))
-            .reduce((a, b) => a.and(b), new TextUselet(''))
+            .reduce(IUselet.and)
             .and(new XmlUselet([ toggleBtn ]));
         }
       }
@@ -175,7 +185,7 @@ class BoardUselet extends Uselet {
         new XmlUselet(`<h3>${mod.board.title}</h3>`).and(
           mod.board.columns
             .map(col => new ColumnUselet(col))
-            .reduce((a, b) => a.and(b), new TextUselet(''))
+            .reduce(IUselet.and)
             .in(document.createElement('div'))
         ) :
         new TextUselet('loading...'),

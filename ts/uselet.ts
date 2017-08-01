@@ -2,54 +2,75 @@ type UMessage = { type: string, data?: any };
 
 const USELET_MESSAGE_TYPE = 'uselet';
 
-abstract class IUselet<Model> {
+abstract class Component<Model> extends HTMLElement {
 
   public abstract xml: Node[];
 
   /* Composition operations */
-  public and<M> (that: IUselet<M>): IUselet<[Model, M]> {
-    return this.andCombinator(this, that);
+  public and<M> (that: Component<M>): Component<[Model, M]> {
+    return Component.and(this, that);
   }
 
-  public in (that: Element): IUselet<Model> {
-    return this.inCombinator(this, that);
+  public in (that: Element): Component<Model> {
+    return Component.in(this, that);
   }
 
 
-  private inCombinator (u: IUselet<any>, node: Element): IUselet<any> {
-    const ret = {
-      and: (that: IUselet<any>) => this.andCombinator(ret, that),
-      in: (that: Element) => this.inCombinator(ret, that),
+  private static in<M, N> (u: Component<M>, node: Element): Component<M> {
+    const ret: Component<M> = <Component<M>> {
+      and: function (that: Component<N>): Component<[M, N]> {
+        return Component.and(ret, that);
+      },
+      in: function (that: Element): Component<M> { return Component.in(ret, that); },
     };
     u.xml.forEach(x => node.appendChild(x));
     Object.defineProperty(ret, 'xml', {
       get: () => [ node ],
       enumerable: true,
     });
-    return <IUselet<Model>> ret;
+    return <Component<M>> ret;
   }
 
-  private andCombinator (u1: IUselet<any>, u2: IUselet<any>): IUselet<any> {
+  private static and<M, N, O> (u1: Component<M>, u2: Component<N>): Component<[ M, N ]> {
     if (!u2) {
       return u1;
     }
 
-    const ret = {
-      and: (other: IUselet<any>) => this.andCombinator(ret, other),
-      in: (other: Element) => this.inCombinator(ret, other),
+    const ret: Component<[ M, N ]> = <Component<[ M, N ]>> {
+      and: function (other: Component<O>): Component<[ [ M, N ], O ]> {
+        return Component.and(ret, other);
+      },
+      in: function (other: Element): Component<[ M, N ]> {
+        return Component.in(ret, other);
+      },
     };
 
     Object.defineProperty(ret, 'xml', {
       get: () => u1.xml.concat(u2.xml),
       enumerable: true,
     });
-    return <IUselet<Model>> ret;
+    return <Component<[ M, N ]>> ret;
   }
 
 }
 
+const freshAddress = function () {
+  let seed = 0;
+
+  return function (): string {
+    return `a${seed++}`;
+  };
+}();
+
+interface Actor {
+  address: string;
+  receive: (msg: UMessage) => void;
+}
+
 /* Extend this class to define your own Uselets */
-class Uselet<Model> extends IUselet<Model>  {
+class Uselet<Model> extends Component<Model> implements Actor  {
+
+  public address = freshAddress();
 
   private root: HTMLElement;
 
@@ -66,9 +87,13 @@ class Uselet<Model> extends IUselet<Model>  {
     private name: string,
     private model: Model,
     private update: (mod: Model, msg: UMessage) => Model,
-    private view: (mod: Model) => IUselet<any>,
+    private view: (mod: Model) => Component<any>,
   ) {
     super();
+
+    // if (!customElements.get(name)) {
+    //   customElements.define(name, this.constructor);
+    // }
 
     this.root = document.createElement(name);
     Object.defineProperty(this.root, 'uselet', {
@@ -79,9 +104,9 @@ class Uselet<Model> extends IUselet<Model>  {
     let child = view(model);
     child.xml.forEach(x => this.root.appendChild(x));
 
-    window.addEventListener(USELET_MESSAGE_TYPE, (e: CustomEvent) => {
+    this.root.addEventListener(USELET_MESSAGE_TYPE, (e: CustomEvent) => {
       this.receive(e.detail);
-    });
+    }, true);
 
   }
 
@@ -107,7 +132,7 @@ class Uselet<Model> extends IUselet<Model>  {
 }
 
 /** Static text */
-class TextUselet extends IUselet<any>  {
+class TextUselet extends Component<any>  {
 
   constructor (private str: string) {
     super();
@@ -120,7 +145,7 @@ class TextUselet extends IUselet<any>  {
 }
 
 /** Static XML/HTML */
-class XmlUselet extends IUselet<any>  {
+class XmlUselet extends Component<any>  {
 
   private children: Node[];
 
@@ -165,7 +190,7 @@ class XmlUselet extends IUselet<any>  {
 class UseletApp {
 
   constructor (
-    child: IUselet<any>,
+    child: Component<any>,
     parent?: Node,
   ) {
     child.xml.forEach(x => (parent || document.body).appendChild((x)));
@@ -173,15 +198,41 @@ class UseletApp {
 
 }
 
-class UseletMessage extends CustomEvent {
-  constructor (type: string, data?: any) {
-    super(USELET_MESSAGE_TYPE, { detail: { type: type, data: data || null } });
+
+class ApiService implements Actor {
+
+  public address = 'API';
+
+  private http = new Http();
+
+  constructor () {
+    window.addEventListener(USELET_MESSAGE_TYPE, (e: CustomEvent) => {
+      this.receive(e.detail);
+    });
   }
+
+  public receive (msg: UMessage): void {
+    switch (msg.type) {
+      case 'GET_SOME':
+        this.getSomething()
+          .then(something => broadcast('GOT_SOME', something))
+          .catch(fail => broadcast('GET_FAILED'));
+        break;
+      default:
+    }
+  }
+
+  private getSomething () {
+    return this.http.get('http://localhost:8000/');
+  }
+
 }
 
 class RouterOutlet extends Uselet<string> {
 
-  constructor (patterns: { path: RegExp, content: Uselet<any> | (() => Uselet<any>) }[]) {
+  constructor (
+    patterns: { path: RegExp, content: Uselet<any> | ((...args: string[]) => Uselet<any>) }[],
+  ) {
     super(
       'router-outlet',
       window.location.pathname,
@@ -199,7 +250,8 @@ class RouterOutlet extends Uselet<string> {
           if (patterns[i].path.test(path.slice(1))) {
             const cont = patterns[i].content;
             if (typeof cont === 'function') {
-              return cont(path.slice(1).match(patterns[i].path));
+              const args = path.slice(1).match(patterns[i].path);
+              return args ? cont(...args) : cont();
             } else {
               return cont;
             }
@@ -216,12 +268,26 @@ class RouterOutlet extends Uselet<string> {
 
 }
 
+
+function broadcast (messageType: string, data?: any): void {
+  window.dispatchEvent(
+    new CustomEvent(USELET_MESSAGE_TYPE, { detail: { type: messageType, data: data || null } }),
+  );
+}
+
+
 Object.defineProperty(Node.prototype, 'addMessageEmitter', {
-  value: function (eventType: string, messageType: string, data: any) {
+  value: function (eventType: string, messageType: string, data?: any) {
     this.addEventListener(
       eventType,
-      (e: Event) => window.dispatchEvent(new UseletMessage(messageType, data)),
+      (e: Event) => broadcast(messageType, data),
     );
   },
   writable: false,
 });
+
+window.addEventListener(
+  USELET_MESSAGE_TYPE,
+  (e: CustomEvent) => console.info('BC', e.detail),
+  true,
+);

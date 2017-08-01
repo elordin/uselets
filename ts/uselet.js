@@ -14,16 +14,17 @@ var IUselet = (function () {
     function IUselet() {
     }
     IUselet.prototype.and = function (that) {
-        return this.andCombinator(this, that);
+        return IUselet.and(this, that);
     };
     IUselet.prototype.in = function (that) {
-        return this.inCombinator(this, that);
+        return IUselet.in(this, that);
     };
-    IUselet.prototype.inCombinator = function (u, node) {
-        var _this = this;
+    IUselet.in = function (u, node) {
         var ret = {
-            and: function (that) { return _this.andCombinator(ret, that); },
-            in: function (that) { return _this.inCombinator(ret, that); },
+            and: function (that) {
+                return IUselet.and(ret, that);
+            },
+            in: function (that) { return IUselet.in(ret, that); },
         };
         u.xml.forEach(function (x) { return node.appendChild(x); });
         Object.defineProperty(ret, 'xml', {
@@ -32,14 +33,17 @@ var IUselet = (function () {
         });
         return ret;
     };
-    IUselet.prototype.andCombinator = function (u1, u2) {
-        var _this = this;
+    IUselet.and = function (u1, u2) {
         if (!u2) {
             return u1;
         }
         var ret = {
-            and: function (other) { return _this.andCombinator(ret, other); },
-            in: function (other) { return _this.inCombinator(ret, other); },
+            and: function (other) {
+                return IUselet.and(ret, other);
+            },
+            in: function (other) {
+                return IUselet.in(ret, other);
+            },
         };
         Object.defineProperty(ret, 'xml', {
             get: function () { return u1.xml.concat(u2.xml); },
@@ -57,6 +61,7 @@ var Uselet = (function (_super) {
         _this.model = model;
         _this.update = update;
         _this.view = view;
+        _this.address = '0';
         _this.root = document.createElement(name);
         Object.defineProperty(_this.root, 'uselet', {
             get: function () { return _this; },
@@ -64,9 +69,9 @@ var Uselet = (function (_super) {
         });
         var child = view(model);
         child.xml.forEach(function (x) { return _this.root.appendChild(x); });
-        window.addEventListener(USELET_MESSAGE_TYPE, function (e) {
+        _this.root.addEventListener(USELET_MESSAGE_TYPE, function (e) {
             _this.receive(e.detail);
-        });
+        }, true);
         return _this;
     }
     Uselet.prototype.receive = function (msg) {
@@ -148,13 +153,51 @@ var UseletApp = (function () {
     }
     return UseletApp;
 }());
-var UseletMessage = (function (_super) {
-    __extends(UseletMessage, _super);
-    function UseletMessage(type, data) {
-        return _super.call(this, USELET_MESSAGE_TYPE, { detail: { type: type, data: data || null } }) || this;
+var ApiService = (function () {
+    function ApiService() {
+        var _this = this;
+        this.address = 'API';
+        window.addEventListener(USELET_MESSAGE_TYPE, function (e) {
+            _this.receive(e.detail);
+        });
     }
-    return UseletMessage;
-}(CustomEvent));
+    ApiService.prototype.receive = function (msg) {
+        switch (msg.type) {
+            case 'GET_SOME':
+                var pr = this.getSomething();
+                console.info(pr);
+                pr
+                    .then(function (something) {
+                    console.info('then');
+                    broadcast('GOT_SOME', something);
+                })
+                    .catch(function (fail) { return broadcast('GET_FAILED'); });
+                break;
+            default:
+        }
+    };
+    ApiService.prototype.getSomething = function () {
+        return this.ajax('GET', 'http://localhost:8000/');
+    };
+    ApiService.prototype.ajax = function (method, uri, payload) {
+        return new Promise(function (resolve, reject) {
+            var xhr = new XMLHttpRequest();
+            xhr.addEventListener('readystatechange', function (e) {
+                if (xhr.readyState === 4) {
+                    if (xhr.status < 400) {
+                        resolve(xhr.response);
+                    }
+                    else {
+                        reject(xhr);
+                    }
+                }
+            });
+            xhr.open(method, uri);
+            xhr.send(payload);
+        });
+    };
+    return ApiService;
+}());
 var RouterOutlet = (function (_super) {
     __extends(RouterOutlet, _super);
     function RouterOutlet(patterns) {
@@ -171,7 +214,8 @@ var RouterOutlet = (function (_super) {
                 if (patterns[i].path.test(path.slice(1))) {
                     var cont = patterns[i].content;
                     if (typeof cont === 'function') {
-                        return cont(path.slice(1).match(patterns[i].path));
+                        var args = path.slice(1).match(patterns[i].path);
+                        return args ? cont.apply(void 0, args) : cont();
                     }
                     else {
                         return cont;
@@ -187,10 +231,14 @@ var RouterOutlet = (function (_super) {
     }
     return RouterOutlet;
 }(Uselet));
+function broadcast(messageType, data) {
+    window.dispatchEvent(new CustomEvent(USELET_MESSAGE_TYPE, { detail: { type: messageType, data: data || null } }));
+}
 Object.defineProperty(Node.prototype, 'addMessageEmitter', {
     value: function (eventType, messageType, data) {
-        this.addEventListener(eventType, function (e) { return window.dispatchEvent(new UseletMessage(messageType, data)); });
+        this.addEventListener(eventType, function (e) { return broadcast(messageType, data); });
     },
     writable: false,
 });
+window.addEventListener(USELET_MESSAGE_TYPE, function (e) { return console.info('BC', e.detail); }, true);
 //# sourceMappingURL=uselet.js.map

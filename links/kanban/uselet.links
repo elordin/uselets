@@ -207,7 +207,8 @@ var nodeAddrPrefix = "_render_node_";
 typename UseletType(dispatcher, services, model, msg, effects :: Row) = (AddressSource({ |effects}), services, dispatcher) { |effects}~> (Xml, AddressSource({ |effects}));
 typename Context(disp, serv) = (dispatcher: disp, parent: Address, self: Address, services:serv);
 typename UpdateFun(dispatcher, services, model, msg, effects :: Row) = (Context(dispatcher, services)) { |effects}~> (model, msg) { |effects}~> model;
-typename ViewFun  (dispatcher, services, model, msg, effects :: Row) = (Context(dispatcher, services)) { |effects}~> (model)      { |effects}~> UseletType(dispatcher, services, model, msg, { |effects});
+typename ViewFun  (dispatcher, services, model, msg, effects :: Row) =
+  forall childmodel. (Context(dispatcher, services)) { |effects}~> (model) { |effects}~> UseletType(dispatcher, services, childmodel, msg, { |effects});
 
 # Uselet-constructor
 # @param {String} name
