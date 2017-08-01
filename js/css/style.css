@@ -1,0 +1,86 @@
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  margin: 0;
+  padding: 0;
+  background-color: #eee;
+}
+
+body.debug {
+  margin-top: 1.5rem;
+}
+
+.debug-bar {
+  background-color: #333;
+  height: 1.5rem;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  color: #fff;
+  font-size: .67rem;
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.debug-bar button {
+  background-color: transparent;
+  border: none;
+  padding: 0 .5rem;
+  height: 1.5rem;
+}
+
+.debug-bar button:hover {
+  background-color: rgba(0, 0, 0, .5);
+}
+
+.debug-bar img {
+  height: .8rem;
+  padding: .3rem 0;
+}
+
+.debug-bar > div {
+  padding: 0 .5rem;
+}
+
+.debug-bar .history-bar {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.debug-bar .history-bar span {
+  padding: .25rem .5rem;
+}
+
+.debug-bar .history-bar span:hover {
+  background-color: rgba(0, 0, 0, .5);
+}
+
+.debug-bar .history-list {
+  position: absolute;
+  top: 1.5rem;
+  right: 0;
+  background-color: #333;
+  color: #fff;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  list-style-type: none;
+  max-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  transition: max-height .25s ease-in-out;
+}
+
+.debug-bar .history-list li {
+  border-top: thin solid #000;
+  border-left: .25rem solid #333;
+  padding: .25rem .5rem;
+}
+
+.debug-bar .history-list li.active,
+.debug-bar .history-list li:hover {
+  border-left-color: #0078D7;
+}
