@@ -17,7 +17,11 @@ function DebugHistory () {
     get: () => currentIndex,
   });
 
-  function update () {
+  Object.defineProperty(this, 'length', {
+    get: () => history.length,
+  });
+
+  function forceUpdate () {
     const target = history[currentIndex];
     if (!target) {
       throw new Error('Unknown history state');
@@ -40,6 +44,9 @@ function DebugHistory () {
       }
     });
 
+  }
+
+  function publishHistoryChange () {
     window.dispatchEvent(new Event(DEBUG_HISTORY_EVENT));
   }
 
@@ -49,25 +56,28 @@ function DebugHistory () {
     }
     history.push(state);
     currentIndex++;
-    update();
+    publishHistoryChange();
   }
 
   this.go = (index) => {
     currentIndex = index;
-    update();
+    forceUpdate();
+    publishHistoryChange();
   }
 
   this.forward = () => {
     if (currentIndex < history.length - 1) {
       currentIndex++;
-      update();
+      forceUpdate();
+      publishHistoryChange();
     }
   }
 
   this.back = () => {
     if (currentIndex > 0) {
       currentIndex--;
-      update();
+      forceUpdate();
+      publishHistoryChange();
     }
   }
 
@@ -83,14 +93,20 @@ function DebugHistory () {
     setTimeout(() => {
       const state = collectState();
       pushState({ name: e.detail.message.type, models: state });
-    }, 100);
+    });
+  });
+
+  window.addEventListener(USELET_SEND_EVENT, (e) => {
+    setTimeout(() => {
+      const state = collectState();
+      pushState({ name: e.detail.message.type, models: state });
+    });
   });
 
   setTimeout(() => {
     const state = collectState();
     pushState({ name: 'init', models: state });
-  }, 100);
-
+  });
 
   return this;
 }
@@ -130,7 +146,6 @@ class Debugger {
     historyBar.appendChild(historyBackButton);
 
     const historyLabel = document.createElement('span');
-    historyLabel.innerText = '10/10';
     historyBar.appendChild(historyLabel);
 
     const historyForwardButton = document.createElement('button');
@@ -143,6 +158,8 @@ class Debugger {
     const historyList = document.createElement('ul');
     historyList.classList.add('history-list');
     function updateHistoryList () {
+      historyLabel.innerText = `${history.index + 1}/${history.length}`;
+
       historyList.innerHTML = '';
       const index = history.index;
       history.states.forEach((state, i) => {
@@ -171,10 +188,11 @@ class Debugger {
       }
     });
 
+    this.stopAsync = { };
   }
 
 }
 
 if (DEBUGGING) {
-  window.addEventListener('load', (e) => new Debugger());
+  window.addEventListener('load', (e) => window.debugger = new Debugger());
 }

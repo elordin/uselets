@@ -204,11 +204,10 @@ fun resolveDOMDiff (subject, targetState) client {
 
 var nodeAddrPrefix = "_render_node_";
 
-typename UseletType(dispatcher, services, model, msg, effects :: Row) = (AddressSource({ |effects}), services, dispatcher) { |effects}~> (Xml, AddressSource({ |effects}));
+typename UseletType(dispatcher, services, sideeffects :: Row) = (AddressSource({ |sideeffects}), services, dispatcher) { |sideeffects}~> (Xml, AddressSource({ |sideeffects}));
 typename Context(disp, serv) = (dispatcher: disp, parent: Address, self: Address, services:serv);
 typename UpdateFun(dispatcher, services, model, msg, effects :: Row) = (Context(dispatcher, services)) { |effects}~> (model, msg) { |effects}~> model;
-typename ViewFun  (dispatcher, services, model, msg, effects :: Row) =
-  forall childmodel. (Context(dispatcher, services)) { |effects}~> (model) { |effects}~> UseletType(dispatcher, services, childmodel, msg, { |effects});
+typename ViewFun  (dispatcher, services, model, msg, effects :: Row) = (Context(dispatcher, services)) { |effects}~> (model) { |effects}~> UseletType(dispatcher, services, { |effects});
 
 # Uselet-constructor
 # @param {String} name
@@ -220,7 +219,7 @@ sig uselet : (
   model,
   UpdateFun(%dispatcher, services, model, msg, { hear: msg | g }),
   ViewFun  (%dispatcher, services, model, msg, { hear: msg | g })
-) -> UseletType(%dispatcher, services, model, msg, { hear: msg | g })
+) -> UseletType(%dispatcher, services, { hear: msg | g })
 fun uselet (name, model, updt, view) {
   fun (addressSource, services, dispatcher) {
 
@@ -256,11 +255,11 @@ fun uselet (name, model, updt, view) {
 
 
     var hndlr = spawnClient {
-      defineCustomElement(
-        name,
-        fun (_) { },
-        fun (_) { }
-      );
+    #   defineCustomElement(
+    #     name,
+    #     fun (_) { },
+    #     fun (_) { }
+    #   );
       hndlr(model)
     };
 
@@ -272,13 +271,13 @@ fun uselet (name, model, updt, view) {
 }
 
 # Uselet-wrapper for simple XML
-sig xmlUselet : (Xml) ~> UseletType(%, %, %, %, { |%})
+sig xmlUselet : (Xml) ~> UseletType(%, %, { |%})
 fun xmlUselet (xml) {
   fun (gen, _, _) { (xml, gen) }
 }
 
 # Uselet-wrapper for plain-text
-sig textUselet : (String) ~> UseletType(%, %, %, %, { |%})
+sig textUselet : (String) ~> UseletType(%, %, { |%})
 fun textUselet (str) {
   fun (gen, _, _) { (stringToXml(str), gen) }
 }
@@ -288,7 +287,7 @@ fun textUselet (str) {
 # @param {String} name Application name
 # @param {Uselet} child Single root uselet of the app
 # @param {fun} servicesFn Function creating the record of external services
-sig useletApp : (String, UseletType(%, %, %, %, { |%}), %) ~> (Xml, AddressSource({ |%}))
+sig useletApp : (String, UseletType(%, %, { |%}), %) ~> (Xml, AddressSource({ |%}))
 fun useletApp (name, child, servicesFn) {
   var historian = spawnClient { historyFun([ ]) };
   fun history (msg) { historian ! msg; msg }

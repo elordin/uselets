@@ -76,7 +76,7 @@ fun spawnApiService (disp) {
   spawnClient { apiFun(disp, ( boards = [ ], columns = [ ], cardsByColumn = [ ] )) }
 }
 
-fun services(disp) {
+fun services (disp) {
   (
     api = spawnApiService(disp)
   )

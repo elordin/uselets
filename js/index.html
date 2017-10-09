@@ -1,73 +1,36 @@
 <!DOCTYPE html>
 <meta charset="utf-8">
+<meta name=viewport content="width=device-width, initial-scale=1">
 <title>Demo</title>
 <link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/style.debug.css">
+<script src="js/incremental-dom.min.js"></script>
+<script src="data.js"></script>
 <script src="uselet.js"></script>
 <script src="uselet.debug.js"></script>
 <script src="uselet.components.js"></script>
-
 <script>
-window.onload = e => new UseletApp(
-  RouterOutlet([
-    {
-      path: /^$/,
-      content: () => asSiblings(
-        XmlUselet([ document.createElement('header') ]),
-        childOf(
-          document.createElement('main'),
-          asSiblings(
-            new XmlUselet('<div>Hello</div>'),
-            new ListUselet([ 4, 2 ]),
-            new TextUselet('World'),
-            new XmlUselet('<b>... !</b>'),
-            new ListUselet([ 1, 2, 3 ]),
-          ),
-        ),
-      ),
-    },
-    {
-      path: /.*/,
-      content: () => {
-        const header = document.createElement('header');
-        header.addEventListener('click', () => Dispatcher.broadcast({
-          type: 'NAVIGATE',
-          data: {
-            url: 'x',
-          },
-        }));
-        return asSiblings(
-          XmlUselet([ header ]),
-          childOf(document.createElement('div'),
-            TextUselet('Hello World'),
-          ),
-        );
+window.onload = e =>
+
+new UseletApp(
+  asSiblings(
+    new XmlUselet(`<header><h1>Kanban-Board</h1></header>`, { click: { msg: { type: 'NAVIGATE', data: { url: '/' } } } }),
+    new RouterOutlet([
+      {
+        path: /^(boards)?$/,
+        content: () => new BoardOverviewUselet(),
       },
-    }
-  ]),
+      {
+        path: /^boards\/([0-9]+)$/,
+        content: ((path, boardId) => new CrossDragBoard(BOARDS[boardId])),
+      },
+
+      // Fallthrough case
+      {
+        path: /.*/,
+        content: () => new TextUselet('404 Not Found')
+      },
+    ], { useHash: true }),
+  )
 );
 </script>
-
-<body>
-  <!--<div class="debug-bar">
-    <div class="stats">
-      <em>Clients:</em> 12
-    </div>
-    <div class="history">
-      <button id="debugHistoryBack"><img src="img/back.svg"></button>
-      <span id="historyToggle">10 / 10</span>
-      <button id="debugHistoryBack"><img src="img/fwd.svg"></button>
-      <ul id="historyList" class="history-list">
-        <li>1</li>
-        <li>2</li>
-        <li>3</li>
-        <li>4</li>
-        <li>5</li>
-        <li>6</li>
-        <li>7</li>
-        <li>8</li>
-        <li>9</li>
-        <li class="active">10</li>
-      </ul>
-    </div>
-  </div>-->
-</body>
