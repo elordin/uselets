@@ -1,0 +1,72 @@
+<link rel="stylesheet" href="css/style.css">
+
+<script>
+
+/* Messages */
+
+function AddItemMessage (item) {
+  return { type: 'ADD_ITEM', data: item };
+}
+
+function RemoveItemMessage (item) {
+  return { type: 'REMOVE_ITEM', data: item };
+}
+
+/* Components */
+
+function HeaderUselet () {
+  return new XmlUselet(
+    `<header><h1>Todo</h1></header>`
+  );
+}
+
+class TodoList extends Uselet {
+  constructor () {
+    super(
+      'todo-list',
+
+      [ 'Prepare SPLS slides', 'Write Thesis' ],
+
+      (mod, msg) => {
+        switch (msg.type) {
+          case 'ADD_ITEM':
+            const copy = mod.map((i) => i);
+            copy.push(msg.data);
+            return copy;
+          case 'REMOVE_ITEM':
+            return mod.filter((i) => i !== msg.data)
+          default:
+            return mod;
+        }
+      },
+
+      (mod, msg) => asSiblings(
+        ...mod.map((i) => new TodoListItem(i, () => this.broadcast(new RemoveItemMessage(i)))),
+        new AddTodoItemForm((str) => this.broadcast(new AddItemMessage(str))),
+      ),
+
+      new SessionType('?ADD_ITEM|?REMOVE_ITEM|!ADD_ITEM|!REMOVE_ITEM', true),
+    );
+  }
+}
+
+
+function AddTodoItemForm (addCallback) {
+  const input = document.createElement('input');
+  input.type = 'text';
+  const btn = document.createElement('button');
+  btn.addEventListener('click', () => addCallback(input.value));
+  btn.type = 'button';
+  btn.innerText = 'Add';
+  return childOf('add-todo-item-form', asSiblings(new XmlUselet(input), new XmlUselet(btn)));
+}
+
+function TodoListItem (str, rmCallback) {
+  return childOf('todo-list-item', asSiblings(
+    new XmlUselet('<input type="checkbox">', {
+      click: rmCallback,
+    }),
+    new XmlUselet(`<span>${str}</span>`),
+  ));
+}
+</script>

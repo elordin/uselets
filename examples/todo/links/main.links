@@ -1,0 +1,34 @@
+open Uselet
+# open Components
+
+fun mainPage (path) {
+  # var (app, _) = useletApp("todo-app", header <+> todoList, fun (_) { () });
+
+  page <html>
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Todo Links</title>
+      <link rel="stylesheet" href="/css/style.css" />
+      <script src="/js/incremental-dom.min.js"></script>
+      <script src="/js/patchdom.js"></script>
+    </head>
+    <body>
+    </body>
+  </html>
+      # { app }
+}
+
+fun main () {
+  addStaticRoute("/css", "./css", [
+    ("css", "text/css")
+  ]);
+  addStaticRoute("/js", "./js", [
+    ("js", "application/javascript")
+  ]);
+
+  addRoute("/", mainPage);
+  servePages()
+}
+
+main()

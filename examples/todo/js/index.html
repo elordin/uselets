@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Todo</title>
+<link rel="import" href="lib/uselet/">
+<link rel="import" href="todo/">
+
+<script>
+
+window.onload = e =>
+
+new UseletApp(asSiblings(
+  new HeaderUselet(),
+  new TodoList(),
+));
+
+</script>

@@ -1,0 +1,47 @@
+open Uselet
+
+var header = xmlUselet(<header><h1>Todo</h1></header>);
+
+fun addTodoItemForm (addCallback) {
+  xmlUselet(
+    <form>
+      <input type="text"></input>
+      <button type="button" l:onclick="{ addCallback(domGetNodeValueFromRef(firstChild(parentNode(getTarget(event))))) }">Add</button>
+    </form>
+  )
+}
+
+fun todoListItem (str, rmCallback) {
+  xmlUselet(
+    <li>
+      <input
+        type="checkbox"
+        l:onclick="{ rmCallback() }"
+      ></input>
+      <span>{ stringToXml(str) }</span>
+    </li>
+  )
+}
+
+var todoList = uselet(
+  "todo-list",
+
+  [ "Prepare SPLS slides", "Write Thesis" ],
+
+  fun (ctx) (mod, msg) {
+    switch (msg) {
+      case AddItemMessage(i) ->
+        i :: mod
+      case RemoveItemMessage(i) ->
+        filter(fun (a) { a <> i }, mod)
+      case _ ->
+        mod
+    }
+  },
+
+  fun (ctx) (mod) {
+    fold_left(fun (a, b) { a <+> b }, emptyUselet, map(fun (i) { todoListItem(i, fun () { ctx.toSelf(RemoveItemMessage(i)) }) }, mod))
+    <+>
+    addTodoItemForm(fun (str) { ctx.toSelf(AddItemMessage(str)) })
+  }
+);

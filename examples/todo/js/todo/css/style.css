@@ -1,0 +1,78 @@
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  margin: 0;
+  max-height: 100vh;
+  overflow: hidden;
+}
+
+header {
+  background-color: #0078D7;
+  color: #fff;
+  display: flex;
+  justify-content: flex-start;
+  padding: .5rem 1rem;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, .2),
+    0 2px 6px rgba(0, 0, 0, .15),
+    0 3px 12px rgba(0, 0, 0, .1);
+}
+
+h1 {
+  font-weight: 100;
+  font-size: 1.5rem;
+  margin: 0;
+  padding: 0;
+}
+
+todo-list {
+  display: block;
+  padding: 0;
+  margin: 0;
+  list-style-type: none;
+  max-height: calc(100vh - 7rem);
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+todo-list-item {
+  display: list-item;
+  border-bottom: thin solid #ddd;
+  padding: .5rem;
+}
+
+add-todo-item-form {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  left: 1rem;
+}
+
+add-todo-item-form button {
+  background-color: #0078D7;
+  color: #fff;
+  height: 3rem;
+  width: 3rem;
+  border: none;
+  border-radius: 50%;
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, .2),
+    0 2px 6px rgba(0, 0, 0, .15),
+    0 3px 12px rgba(0, 0, 0, .1);
+}
+
+add-todo-item-form input {
+  width: calc(100% - 2rem);
+  background-color: #fff;
+  margin: .5rem 0;
+  padding: .5rem 1rem .5rem .5rem;
+  box-sizing: border-box;
+  border: thin solid #ddd;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, .15),
+    0 2px 6px rgba(0, 0, 0, .1),
+    0 3px 12px rgba(0, 0, 0, .05);
+}

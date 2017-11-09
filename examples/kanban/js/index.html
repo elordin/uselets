@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<meta name=viewport content="width=device-width, initial-scale=1">
+<title>Demo</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/style.debug.css">
+<script src="js/incremental-dom.min.js"></script>
+<script src="data.js"></script>
+<script src="uselet.js"></script>
+<script src="uselet.debug.js"></script>
+<script src="uselet.components.js"></script>
+<script>
+window.onload = e =>
+
+new UseletApp(
+  asSiblings(
+    new XmlUselet(`<header><h1>Kanban-Board</h1></header>`, { click: { msg: { type: 'NAVIGATE', data: { url: '/' } } } }),
+    new RouterOutlet([
+      {
+        path: /^(boards)?$/,
+        content: () => new BoardOverviewUselet(),
+      },
+      {
+        path: /^boards\/([0-9]+)$/,
+        content: ((path, boardId) => new CrossDragBoard(BOARDS[boardId])),
+      },
+
+      // Fallthrough case
+      {
+        path: /.*/,
+        content: () => new TextUselet('404 Not Found')
+      },
+    ], { useHash: true }),
+  )
+);
+</script>

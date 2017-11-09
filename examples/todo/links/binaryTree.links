@@ -1,0 +1,104 @@
+typename Ord = [| LT | GT | EQ |];
+typename CompareFn(a) = (a, a) {}~> Ord;
+typename BinaryTree(key, value) = [| BTNode: (key, Maybe(value), BinaryTree(key, value), BinaryTree(key, value)) | BTLeaf |];
+
+var emptyTree = BTLeaf;
+
+# Insert a key-value-pair into the tree
+# @param key
+# @param value
+# @param compare Comparison function for two keys
+# @param
+fun treeInsert (key, value, compare, tree) {
+  switch (tree) {
+    case BTLeaf -> BTNode(key, Just(value), BTLeaf, BTLeaf)
+    case BTNode(k, v, l, r) -> switch (compare(key, k)) {
+      case EQ -> BTNode(k, Just(value), l, r)
+      case LT -> BTNode(k, v, treeInsert(key, value, compare, l), r)
+      case GT -> BTNode(k, v, l, treeInsert(key, value, compare, r))
+    }
+  }
+}
+
+fun treeFromList (kvps, compare) {
+  fold_left(fun (t, kvp) { var (k, v) = kvp; treeInsert(k, v, compare, t) }, emptyTree, kvps)
+}
+
+fun treeToList (tree) {
+  switch (tree) {
+    case BTLeaf -> [ ]
+    case BTNode(k, v, l, r) -> {
+      fun filterJustToValue (xs) {
+        switch (xs) {
+          case [ ] -> [ ]
+          case (k, Nothing) :: t -> filterJustToValue(t)
+          case (k, Just(v)) :: t -> (k, v) :: filterJustToValue(t)
+        }
+      }
+      filterJustToValue((k, v) :: treeToList(l) ++ treeToList(r))
+    }
+  }
+}
+
+fun treeMapValues (f, tree) {
+  switch (tree) {
+    case BTLeaf -> BTLeaf
+    case BTNode(k, Nothing, l, r) -> BTNode(k, Nothing, treeMapValues(f, l), treeMapValues(f, r))
+    case BTNode(k, Just(v), l, r) -> BTNode(k, Just(f(v)), treeMapValues(f, l), treeMapValues(f, r))
+  }
+}
+
+fun treeForEachValue (f, tree) {
+  switch (tree) {
+    case BTLeaf -> ()
+    case BTNode(k, Nothing, l, r) -> ()
+    case BTNode(k, Just(v), l, r) -> {
+      f(v);
+      treeForEachValue(f, l);
+      treeForEachValue(f, r);
+    }
+  }
+}
+
+fun treeForEachKeyValue (f, tree) {
+  switch (tree) {
+    case BTLeaf -> ()
+    case BTNode(k, Nothing, l, r) -> ()
+    case BTNode(k, Just(v), l, r) -> {
+      f(k, v);
+      treeForEachKeyValue(f, l);
+      treeForEachKeyValue(f, r);
+    }
+  }
+}
+
+fun treeFilter (f, tree) {
+  switch (tree) {
+    case BTLeaf -> BTLeaf
+    case BTNode(k, Nothing, l, r) -> BTNode(k, Nothing, treeFilter(f, l), treeFilter(f, r))
+    case BTNode(k, Just(v), l, r) -> BTNode(k, if (f(k)) { Just(v) } else { Nothing }, treeFilter(f, l), treeFilter(f, r))
+  }
+}
+
+fun treeLookup (key, compare, tree) {
+  switch (tree) {
+    case BTLeaf -> Nothing
+    case BTNode(k, v, l, r) -> switch (compare(key, k)) {
+      case EQ -> v
+      case LT -> treeLookup(key, compare, l)
+      case GT -> treeLookup(key, compare, r)
+    }
+  }
+}
+
+fun treeRemove (key, compare, tree) {
+  switch (tree) {
+    case BTLeaf -> BTLeaf
+    case BTNode(k, v, l, r) -> switch (compare(key, k)) {
+      case EQ -> BTNode(k, Nothing, l, r)
+      case LT -> treeRemove(key, compare, l)
+      case GT -> treeRemove(key, compare, r)
+    }
+  }
+}
+

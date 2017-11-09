@@ -1,0 +1,52 @@
+open Models
+
+var db = database "lnx-kanban" "postgresql" "localhost:54321:linx:edi";
+
+# CREATE TABLE "users" (
+#   "id" SERIAL PRIMARY KEY,
+#   "name" VARCHAR(255) NOT NULL,
+#   "password" VARCHAR(255) NOT NULL
+# );
+var usersTable = table "users"
+  with User
+  where id readonly
+  from db;
+
+
+# CREATE TABLE "boards" (
+#   "id" SERIAL PRIMARY KEY,
+#   "name" VARCHAR(255) NOT NULL,
+#   "owner" INT NOT NULL REFERENCES "users"("id") ON DELETE CASCADE
+# );
+var boardsTable = table "boards"
+  with Board
+  where id readonly
+  from db;
+
+
+# CREATE TABLE "columns" (
+#   "id" SERIAL PRIMARY KEY,
+#   "name" VARCHAR(255) NOT NULL,
+#   "index" INT NOT NULL DEFAULT 0,
+#   "board" INT NOT NULL REFERENCES "boards"("id") ON DELETE CASCADE
+# );
+var columnsTable = table "columns"
+  with BoardColumn
+  where
+    id readonly,
+    index default
+  from db;
+
+
+# CREATE TABLE "cards" (
+#   "id" SERIAL PRIMARY KEY,
+#   "head" VARCHAR(255) NOT NULL,
+#   "body" VARCHAR(1023) NOT NULL DEFAULT '',
+#   "column" INT NOT NULL REFERENCES "columns"("id") ON DELETE CASCADE
+# );
+var cardsTable = table "cards"
+  with Card
+  where
+    id readonly,
+    body default
+  from db;

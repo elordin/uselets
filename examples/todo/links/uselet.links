@@ -1,0 +1,276 @@
+open BinaryTree
+open Util
+
+alien javascript "/js/patchdom.js" {
+  patchDom: (DomNode, XmlItem) ~%~> ();
+  historyPushState: (%, String, String) ~%~> ();
+}
+
+# Namer
+
+typename Address = [Int];
+typename AddressSource(e::Row) = () { |e}~> Address;
+
+# compare for Address
+fun addrComp (a, b) {
+  switch ((a, b)) {
+    case ([ ], [ ]) -> EQ
+    case ([ ], _) -> LT
+    case (_, [ ]) -> GT
+    case (h1 :: t1, h2 :: t2) ->
+      if (h1 == h2) addrComp(t1, t2)
+      else if (h1 < h2) LT
+      else GT
+  }
+}
+
+# Generate a fresh Address from an AddressSource
+# @param {AddressSource}
+# @returns {(Address, AddressSource)} Pair of the generated Address and an updated generator
+fun makeAddr (source) {
+  var address = source();
+  (address, fun () { var h :: t = address; (h + 1) :: t })
+}
+
+fun makeSource (address) { fun () { 0 :: address } }
+
+fun addrToString (addr) {
+  switch (addr) {
+    case [ ] -> error("Empty address")
+    case (h :: t) -> fold_left(fun (prev, curr) { intToString(curr) ^^ "-" ^^ prev }, intToString(h), t)
+  }
+}
+
+fun isChildAddr(child, parent) {
+  (length(child) == length(parent) + 1) && (tl(child) == parent)
+}
+
+var initialSource = fun () { [ 0 ] } : AddressSource({ |e});
+
+
+# Dispatcher
+
+typename DispatcherMessage(i, o) =
+ [| Deregister: Address
+  | Ignore
+  | Send: (Address, o)
+  | SendToParent: (Address, o)
+  | SendToChildren: (Address, o)
+  | Broadcast: (Address, o)
+  | Register: (Address, Address, i)
+  |];
+
+# Dispatcher handler
+# Forward messages to their correct recipient(s)
+# @param {[(Address, fun]} clients
+# @returns {()}
+fun dispatchFun (clients) client {
+  receive {
+    case Register(addr, send) -> {
+      send(OnInit);
+      dispatchFun(treeInsert(addr, send, addrComp, clients))
+    }
+    case Deregister(addr)  -> dispatchFun(treeRemove(addr, addrComp, clients))
+    case DeregisterChildren(addr) ->
+      treeForEachKeyValue(fun (k, send) {
+        if (isChildAddr(k, addr)) {
+          send(OnDelete)
+        } else { () }
+      }, clients);
+      dispatchFun(treeFilter(fun (a) { not(isChildAddr(a, addr)) }, clients))
+    case Ignore -> dispatchFun(clients)
+    case Send(source, target, msg) -> {
+      switch (treeLookup(target, addrComp, clients)) {
+        case Nothing -> ()
+        case Just(send) -> send(msg)
+      };
+      dispatchFun(clients)
+    }
+    case SendToParent(source, msg) -> {
+      switch (treeLookup(tl(source), addrComp, clients)) {
+        case Nothing -> ()
+        case Just(send) -> send(msg)
+      };
+      dispatchFun(clients)
+    }
+    case SendToChildren(source, msg) -> {
+      treeForEachKeyValue(fun (addr, send) {
+        if (isChildAddr(addr, source)) {
+          send(msg)
+        } else { () }
+      }, clients);
+      dispatchFun(clients)
+    }
+    case Broadcast(source, msg) -> {
+      treeForEachValue(fun (send) { send(msg) }, clients);
+      dispatchFun(clients)
+    }
+  }
+}
+
+# Mix in function applied to all messages received
+# @param {Process} The recipient of the message
+# @param {fun} Mutator for the messages
+# @returns {Process}
+fun using (recp, plugin) {
+  fun helper () {
+    receive {
+      case msg -> { recp ! plugin(msg); helper() }
+    }
+  }
+  spawnClient { helper() }
+}
+
+fun log (msg) { dump(msg); msg }
+
+# @returns {Process} Dispatcher process with logging
+fun spawnDispatcher () {
+  spawnClient { dispatchFun(emptyTree) } # `using` log
+}
+
+
+# Uselet
+
+var nodeAddrPrefix = "_render_node_";
+
+typename UseletType(dispatcher, services, sideeffects :: Row) = (AddressSource({ |sideeffects}), services, dispatcher) { |sideeffects}~> (Xml, AddressSource({ |sideeffects}));
+typename Context(disp, serv) = (dispatcher: disp, parent: Address, self: Address, services:serv);
+typename UpdateFun(dispatcher, services, model, msg, effects :: Row) = (Context(dispatcher, services)) { |effects}~> (model, msg) { |effects}~> model;
+typename ViewFun  (dispatcher, services, model, msg, effects :: Row) = (Context(dispatcher, services)) { |effects}~> (model) { |effects}~> UseletType(dispatcher, services, { |effects});
+
+# Uselet-constructor
+# @param {String} name
+# @param {model} model
+# @param {(ctx) ~> (model, msg) ~> model} updt Update function
+# @param {(ctx) ~> (model) ~> Uselet} view Render function
+sig uselet : (
+  String,
+  model,
+  %,
+  %
+) -> # UseletType(%dispatcher, services, { hear: msg | g })
+fun uselet (name, model, updt, view) {
+  fun (addressSource, services, dispatcher) {
+
+    var (addr, gen) = makeAddr(addressSource);
+    var childGen = makeSource(addr);
+    var id = nodeAddrPrefix ^^ addrToString(addr);
+
+    var context = (
+      services = services,
+      self = addr,
+      send = fun (to, msg) { dispatcher ! Send(addr, to, msg) },
+      toParent = fun (msg) { dispatcher ! SendToParent(addr, msg) },
+      toChildren = fun (msg) { dispatcher ! SendToChildren(addr, msg) },
+      toSelf = fun (msg) { dispatcher ! Send(addr, addr, msg) },
+      broadcast = fun (msg) { dispatcher ! Broadcast(addr, msg) },
+      dispatcher = dispatcher,
+      parent = tl(addr)
+    );
+
+    fun hndlr (oldState) {
+      receive {
+        case msg -> {
+          var newState = updt(context)(oldState, msg);
+          if (newState <> oldState) {
+            var (xml, _) = view(context)(newState)(childGen, services, dispatcher);
+            var tag = makeXml(name, [ ("id", id) ], xml);
+            var currentDOM = getNodeById(id);
+            patchDom(currentDOM, tag);
+          } else { () };
+
+          hndlr(newState)
+        }
+      }
+    }
+
+
+    var hndlr = spawnClient {
+      hndlr(model)
+    };
+
+    dispatcher ! Register(addr, fun (msg) { hndlr ! msg });
+    var (xml, _) = view(context)(model)(childGen, services, dispatcher);
+    var tag = [ makeXml(name, [("id", id)], xml) ];
+    (tag, gen)
+  }
+}
+
+# Uselet-wrapper for simple XML
+# sig xmlUselet : (Xml) ~> UseletType(%, %, { |%})
+fun xmlUselet (xml) {
+  fun (gen, _, _) { (xml, gen) }
+}
+
+# Uselet-wrapper for plain-text
+# sig textUselet : (String) ~> UseletType(%, %, { |%})
+fun textUselet (str) {
+  fun (gen, _, _) { (stringToXml(str), gen) }
+}
+
+# Application container for uselets
+# Bootstraps all the inner workings
+# @param {String} name Application name
+# @param {Uselet} child Single root uselet of the app
+# @param {fun} servicesFn Function creating the record of external services
+# sig useletApp : (String, UseletType(%, %, { |%}), %) ~> (Xml, AddressSource({ |%}))
+fun useletApp (name, child, servicesFn) {
+  var dispatcher = spawnDispatcher();
+
+  var services = servicesFn(dispatcher);
+
+  var (xml, gen) = child(initialSource, services, dispatcher);
+
+  ([ makeXml(name, [ ], xml) ], gen)
+}
+
+# Dynamic client-side routing container
+# @param {([String]) ~> Uselet} router Function mapping a given route to a uselet to display
+# @param {String} path Initial path
+# @returns {Uselet}
+fun routerOutlet (router, path) {
+  uselet(
+    "router-outlet",
+    splitAt('/', path),
+    fun (ctx) (mod, msg) {
+      switch (msg) {
+
+        case NavigateTo(path) ->
+          historyPushState((), "", path);
+          splitAt('/', path)
+
+        case _ ->
+          debug("Received unknown message: " ^^ show(msg));
+          mod
+      }
+    },
+    fun (ctx) (route) {
+      router(ctx)(route)
+    }
+  )
+}
+
+# Parallel composition
+op u1 <+> u2 {
+  fun (addrSource, services, dispatcher) {
+    var (xml1, gen1) = u1(addrSource, services, dispatcher);
+    var (xml2, gen2) = u2(gen1, services, dispatcher);
+    (<#>
+      { xml1 }
+      { xml2 }
+    </#>, gen2)
+  }
+}
+
+# Wrap a Uselet in XML
+op xmlItem +> u {
+  fun (addrSource, services, dispatcher) {
+    var name = getTagName([ xmlItem ]);
+    var attributes = getAttributes([ xmlItem ]);
+    var (xml, gen) = u(addrSource, services, dispatcher);
+
+    ([ makeXml(name, attributes, xml) ], gen)
+  }
+}
+
+var emptyUselet = textUselet("");
